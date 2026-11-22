@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package quack.telemetry.v1;
 
-// One joint reading. Bus servos use servo_id 1..16; joints without a bus
+// One joint reading. Bus servos use servo_id 1..14; joints without a bus
 // servo (PWM antennas) use 255. When has_feedback is false, velocity,
 // current and temperature are undefined and clients must ignore them.
 message JointState {

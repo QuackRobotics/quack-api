@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -32,3 +35,15 @@ jobs:
         run: |
           git fetch origin main:refs/heads/main
           scripts/buf-breaking.sh
+
+  ci:
+    needs: [rust, proto]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: all required jobs passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }}"
+          exit 1
+      - run: echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }}"
