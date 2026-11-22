@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use quack_core::servo::{BusServoId, InvalidServoId, ServoId, UNASSIGNED_SERVO_ID};
 
 #[test]

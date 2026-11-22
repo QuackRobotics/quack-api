@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! Joint state as reported by the hardware layer, and the view exposed to
 //! API clients. Joints without feedback (PWM antennas) report whatever the
 //! driver left in the velocity/current/temperature registers; those values
