@@ -27,7 +27,7 @@ fn antenna_without_feedback_drops_junk_fields() {
 #[test]
 fn bus_servo_with_feedback_keeps_fields() {
     let state = JointState::try_from(raw("left_hip_yaw", 1, true)).unwrap();
-    assert_eq!(state.servo_id, ServoId::Bus(1));
+    assert_eq!(state.servo_id, ServoId::try_from(1).unwrap());
     assert_eq!(state.velocity_rad_s, Some(9_999.0));
     assert_eq!(state.current_ma, Some(-1.0));
     assert_eq!(state.temperature_c, Some(1_234.5));
