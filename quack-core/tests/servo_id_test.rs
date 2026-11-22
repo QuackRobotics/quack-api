@@ -1,8 +1,8 @@
 use quack_core::servo::{InvalidServoId, ServoId, UNASSIGNED_SERVO_ID};
 
 #[test]
-fn bus_ids_1_to_16_are_valid_and_round_trip() {
-    for raw in 1..=16u32 {
+fn bus_ids_1_to_14_are_valid_and_round_trip() {
+    for raw in 1..=14u32 {
         let id = ServoId::try_from(raw).expect("bus id should be valid");
         assert_eq!(id, ServoId::Bus(raw as u8));
         assert_eq!(u32::from(id), raw);
@@ -23,7 +23,7 @@ fn zero_is_rejected() {
 
 #[test]
 fn ids_outside_bus_range_and_not_sentinel_are_rejected() {
-    for raw in [17u32, 100, 254, 256, u32::MAX] {
+    for raw in [15u32, 16, 17, 100, 254, 256, u32::MAX] {
         assert_eq!(ServoId::try_from(raw), Err(InvalidServoId(raw)), "id {raw}");
     }
 }

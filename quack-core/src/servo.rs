@@ -1,7 +1,7 @@
 //! Servo identifiers.
 //!
-//! Bus servos (STS3215) use ids 1..=16. Joints that are not on the bus,
-//! such as the two PWM antennas on GPIO12/13, carry the sentinel 255.
+//! Bus servos (14 x STS3215) use ids 1..=14. Joints that are not on the bus,
+//! such as the two SG90 antennas on Pi PWM (GPIO12/13), carry the sentinel 255.
 //! Id 0 is never assigned on our bus, so it is rejected rather than
 //! silently treated as "unassigned".
 
@@ -11,7 +11,7 @@ use std::fmt;
 pub const UNASSIGNED_SERVO_ID: u32 = 255;
 
 /// Highest id assigned on the STS3215 bus.
-pub const MAX_BUS_SERVO_ID: u32 = 16;
+pub const MAX_BUS_SERVO_ID: u32 = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServoId {
