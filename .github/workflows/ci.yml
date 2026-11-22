@@ -39,14 +39,20 @@ jobs:
           git fetch origin main:refs/heads/main
           scripts/buf-breaking.sh
 
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run openapi-spec-validator==0.7.1 openapi/quack-api.yaml
+
   ci:
-    needs: [rust, proto]
+    needs: [rust, proto, openapi]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all required jobs passed
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
         run: |
-          echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }}"
+          echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }}"
           exit 1
-      - run: echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }}"
+      - run: echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }}"

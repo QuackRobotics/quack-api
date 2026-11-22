@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [workspace]
-members = ["quack-core"]
+members = ["quack-core", "quack-api"]
 resolver = "2"
 
 [workspace.package]
