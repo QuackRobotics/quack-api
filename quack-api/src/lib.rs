@@ -5,6 +5,7 @@
 //! `openapi/quack-api.yaml` is the contract; these handlers implement it.
 
 pub mod hardware;
+pub mod startup;
 
 use std::collections::HashSet;
 use std::sync::Arc;
