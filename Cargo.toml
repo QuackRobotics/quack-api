@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+
 [workspace]
 members = ["quack-core"]
 resolver = "2"
