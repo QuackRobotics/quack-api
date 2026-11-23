@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Quack Robotics contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// DRAFT, pending Atlas review. Atlas owns the telemetry schema.
+// DRAFT. Atlas owns the telemetry schema. Atlas reviewed caedaaa and acked
+// Stamp, stance, self_motion, GaitMode, FallSettled (2026-11-23 10:04).
 // Not referenced by codegen or CI gates. Field numbers may change until
 // it moves out of proposals/.
 
@@ -16,7 +17,6 @@ message Stamp {
   string boot_id = 2;
 }
 
-// Pending Atlas ack (Chief ruling 2026-11-23 10:02).
 enum Stance {
   STANCE_UNSPECIFIED = 0;
   STANCE_DOUBLE_SUPPORT = 1;
@@ -58,12 +58,12 @@ message GaitModeEvent {
 }
 
 // self_motion, published by the control loop at 50 Hz, one tick ahead of
-// the motion. Consumers never compute it themselves.
+// the motion: set when the next-tick target moves a joint OR measured
+// |omega| > 0.05 rad/s. Consumers never compute it themselves.
 // legs/head: any joint |vel| > 0.05 rad/s or target changed that tick.
 // antennas: true for 300 ms after any command (SG90, no feedback). Also
 // drives the -12 dBFS speaker cap.
 // magnitude_rad_s: from commanded + measured joint |omega|, head included.
-// magnitude_rad_s and "one tick ahead" pending Atlas ack.
 message SelfMotion {
   Stamp stamp = 1;
   bool legs = 2;
@@ -82,9 +82,13 @@ message FallSettled {
 
 enum StandUpAbortReason {
   STAND_UP_ABORT_REASON_UNSPECIFIED = 0;
-  // Pack < 6.3 V for > 50 ms during stand-up. Counts as 1 of 3 attempts.
-  // Acked by Atlas. Not a power.* event.
+  // Pack < 6.3 V for > 50 ms (10 samples at 200 Hz) during stand-up.
+  // Counts as 1 of 3 attempts. Not a power.* event.
   STAND_UP_ABORT_REASON_UNDERVOLTAGE = 1;
+  // INA226 undervoltage alert (6.0 V), latched.
+  STAND_UP_ABORT_REASON_UNDERVOLTAGE_ALERT = 2;
+  // Overcurrent trip (fault). No retry.
+  STAND_UP_ABORT_REASON_OVERCURRENT_TRIP = 3;
 }
 
 message StandUpAborted {
@@ -94,17 +98,25 @@ message StandUpAborted {
   double min_pack_v = 4;
 }
 
+// All thresholds provisional. The < 6.3 V > 50 ms level is a stand-up abort
+// (StandUpAbortReason), not a low-battery reason.
 enum LowBatteryReason {
   LOW_BATTERY_REASON_UNSPECIFIED = 0;
-  LOW_BATTERY_REASON_REST = 1;    // pack below threshold_v at rest
-  LOW_BATTERY_REASON_LOADED = 2;  // < 6.3 V for > 1 s under load
+  // Stand-up gate: rest pack V below the per-unit gate (default 7.85 V).
+  LOW_BATTERY_REASON_STANDUP_GATE = 1;
+  // Gait trigger: rest pack V < 7.2 V.
+  LOW_BATTERY_REASON_REST = 2;
+  // Gait trigger: loaded pack V < 6.8 V.
+  LOW_BATTERY_REASON_LOADED = 3;
 }
 
-// power.low_battery. Rest threshold is per-robot config.
-// Default 7.85 V (3.92 V/cell) until pack R is bench-measured, then
-// 6.3 + 23.9 A * R + 0.1. May rise automatically from R estimated per logged
-// stand-up (TBD-Woz: needs pack-current sensing + 200 Hz voltage ADC);
-// never lowered without a bench measurement. Re-emitted when threshold_v rises.
+// power.low_battery. threshold_v is the threshold for this reason.
+// Stand-up gate is per-robot config: default 7.85 V (3.92 V/cell) until the
+// unit is bench-measured, then 6.3 + I_su * R + 0.1, where I_su = that unit's
+// measured stand-up peak current + 10%. May rise automatically from R
+// estimated per logged stand-up (INA226 pack current + voltage); never
+// lowered without a bench measurement. Re-emitted when threshold_v rises.
+// If the INA226 fails: R = bench R + 15 mOhm, re-benched every 50 cycles.
 message LowBattery {
   Stamp stamp = 1;
   double pack_v = 2;
@@ -115,6 +127,15 @@ message LowBattery {
 }
 
 // power.fail, from PFI. Separate from LowBattery, never merged.
+// Latches until power.rearm. Both events are always logged.
 message PowerFail {
   Stamp stamp = 1;
+}
+
+// power.rearm: operator re-arm after power.fail. Emitted only when all three
+// hold: CAPGOOD high, rest pack V >= stand-up gate, explicit operator action.
+message PowerRearm {
+  Stamp stamp = 1;
+  double rest_pack_v = 2;
+  double gate_v = 3;
 }

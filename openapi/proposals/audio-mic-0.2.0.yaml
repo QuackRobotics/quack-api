@@ -121,7 +121,7 @@ paths:
         (muted, mic listening, duty, priority, capgood); the outcome is
         reported on WS as audio.playback. 409 is never used for mute.
         API plays keep that playback_id on every event, suppressed included
-        (they have no cue_seq to match on).
+        (they have no cue_seq to match on). Pending Atlas ack.
       requestBody:
         required: true
         content:
@@ -351,8 +351,9 @@ components:
             interrupted: stop | preempted | safe_stop | power_fail.
             suppressed: muted | listening | duty | priority | capgood
             (capgood = backup power not ready). capgood suppression holds
-            until the power re-arm latch clears (all 3 re-arm conditions,
-            TBD-Woz), not merely until LTC3226 CAPGOOD goes high again.
+            until the power re-arm latch clears (CAPGOOD high + rest pack V
+            >= stand-up gate + explicit operator action, logged as
+            power.rearm), not merely until LTC3226 CAPGOOD goes high again.
           type: [string, "null"]
           enum: [stop, preempted, safe_stop, power_fail, muted, listening, duty, priority, capgood, null]
         mono_ms: { type: integer, description: CLOCK_MONOTONIC ms }
@@ -397,7 +398,7 @@ components:
             magnitude_rad_s: { type: number, minimum: 0 }
         stance:
           description: |
-            Same values as gait.stance in telemetry.proto (pending Atlas ack).
+            Same values as gait.stance in telemetry.proto.
             none = flight or fall only, never "unknown".
           type: string
           enum: [double_support, left_support, right_support, none]
