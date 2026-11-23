@@ -1,0 +1,104 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// DRAFT, pending Atlas review. Atlas owns the telemetry schema.
+// Not referenced by codegen or CI gates. Field numbers may change until
+// it moves out of proposals/.
+
+syntax = "proto3";
+
+package quack.telemetry.v1alpha1;
+
+// Common header. mono_ms = CLOCK_MONOTONIC ms on the Pi.
+// boot_id = /proc/sys/kernel/random/boot_id.
+message Stamp {
+  uint64 mono_ms = 1;
+  string boot_id = 2;
+}
+
+enum Stance {
+  STANCE_UNSPECIFIED = 0;
+  STANCE_DOUBLE_SUPPORT = 1;
+  STANCE_LEFT_SUPPORT = 2;
+  STANCE_RIGHT_SUPPORT = 3;
+  STANCE_AIRBORNE = 4;
+}
+
+// gait.stance, 50 Hz, from SS-10 foot switches.
+message GaitStance {
+  Stamp stamp = 1;
+  Stance stance = 2;
+}
+
+enum GaitMode {
+  GAIT_MODE_UNSPECIFIED = 0;
+  GAIT_MODE_STANDING = 1;
+  GAIT_MODE_WALKING = 2;
+  GAIT_MODE_TURNING = 3;
+  GAIT_MODE_STOPPING = 4;
+  GAIT_MODE_FALLEN = 5;
+  GAIT_MODE_RECOVERING = 6;
+  GAIT_MODE_SAFE_STOPPED = 7;
+}
+
+message GaitModeEvent {
+  Stamp stamp = 1;
+  GaitMode mode = 2;
+}
+
+// self_motion, 50 Hz. legs/head: any joint |vel| > 0.05 rad/s or target
+// changed that tick. antennas: true for 300 ms after any command (SG90,
+// no feedback). Also drives the -12 dBFS speaker cap.
+message SelfMotion {
+  Stamp stamp = 1;
+  bool legs = 2;
+  bool head = 3;
+  bool antennas = 4;
+  bool any = 5;
+}
+
+// fall.settled: after fall detect, trunk < 0.3 rad/s for 0.5 s, before stand-up.
+message FallSettled {
+  Stamp stamp = 1;
+  double trunk_pitch_rad = 2;
+  double trunk_roll_rad = 3;
+}
+
+enum StandUpAbortReason {
+  STAND_UP_ABORT_REASON_UNSPECIFIED = 0;
+  // Pack < 6.3 V for > 50 ms during stand-up. Counts as 1 of 3 attempts.
+  // Acked by Atlas. Not a power.* event.
+  STAND_UP_ABORT_REASON_UNDERVOLTAGE = 1;
+}
+
+message StandUpAborted {
+  Stamp stamp = 1;
+  StandUpAbortReason reason = 2;
+  uint32 attempt = 3;      // 1..3
+  double min_pack_v = 4;
+}
+
+enum LowBatteryReason {
+  LOW_BATTERY_REASON_UNSPECIFIED = 0;
+  LOW_BATTERY_REASON_REST = 1;    // pack below threshold_v at rest
+  LOW_BATTERY_REASON_LOADED = 2;  // < 6.3 V for > 1 s under load
+}
+
+// power.low_battery. Rest threshold is per-robot config.
+// Default 7.85 V (3.92 V/cell) until pack R is bench-measured, then
+// 6.3 + 23.9 A * R + 0.1. May rise automatically from R estimated per logged
+// stand-up (TBD-Woz: needs pack-current sensing + 200 Hz voltage ADC);
+// never lowered without a bench measurement. Re-emitted when threshold_v rises.
+message LowBattery {
+  Stamp stamp = 1;
+  double pack_v = 2;
+  double per_cell_v = 3;
+  double threshold_v = 4;
+  optional double r_mohm = 5;  // unset while the 7.85 V default is in use
+  LowBatteryReason reason = 6;
+}
+
+// power.fail, from PFI. Separate from LowBattery, never merged.
+message PowerFail {
+  Stamp stamp = 1;
+}

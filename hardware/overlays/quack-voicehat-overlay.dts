@@ -1,0 +1,57 @@
+// SPDX-FileCopyrightText: Raspberry Pi Ltd and contributors (googlevoicehat-soundcard-overlay.dts)
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Fork of raspberrypi/linux arch/arm/boot/dts/overlays/googlevoicehat-soundcard-overlay.dts.
+// Only change: SD_MODE GPIO16 -> GPIO4 (brcm,pins and sdmode-gpios).
+// Replaces quack-audio (multi-codec simple-audio-card), which binds the
+// MAX98357A and silently drops the ICS43432 on rpi-6.6.y / rpi-6.12.y.
+// quack-voicehat: googlevoicehat-soundcard fork, SD_MODE on GPIO4 (was 16)
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&i2s_clk_producer>;
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@1 {
+		target = <&gpio>;
+		__overlay__ {
+			googlevoicehat_pins: googlevoicehat_pins {
+				brcm,pins = <4>;
+				brcm,function = <1>; /* out */
+				brcm,pull = <0>; /* up */
+			};
+		};
+	};
+
+
+	fragment@2 {
+		target-path = "/";
+		__overlay__ {
+			voicehat-codec {
+				#sound-dai-cells = <0>;
+				compatible = "google,voicehat";
+				pinctrl-names = "default";
+				pinctrl-0 = <&googlevoicehat_pins>;
+				sdmode-gpios= <&gpio 4 0>;
+				status = "okay";
+			};
+		};
+	};
+
+	fragment@3 {
+		target = <&sound>;
+		__overlay__ {
+			compatible = "googlevoicehat,googlevoicehat-soundcard";
+			i2s-controller = <&i2s_clk_producer>;
+			status = "okay";
+		};
+	};
+};
