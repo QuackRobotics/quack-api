@@ -12,13 +12,17 @@ info:
   description: |
     Speaker and microphone routes for REST :8080. Telemetry events
     (audio.playback, mic.*) travel on WS :8081; their payload schemas are
-    defined here under components.schemas and mirrored in
-    proto/proposals/telemetry.proto.
+    defined here under components.schemas (JSON on WS). A proto mirror
+    comes with the WS/gRPC work; gait/self_motion/power telemetry is in
+    proto/proposals/quack/telemetry/v1alpha1/telemetry.proto.
 
     Privacy rules enforced by the server, not by clients:
     - Mic is off at every boot. No API setting changes that default.
     - Mute wins over enabled.
-    - No raw audio leaves the robot. No route returns PCM, recordings or files.
+    - Mic v1 is level + onset only, computed on the robot (mic.level,
+      mic.sound_heard, mic.sound_ended). Raw audio is never logged and never
+      sent off the robot by default, and is never fed to the walking policy.
+      No route returns PCM, recordings or files.
     - The listening indicator is Luxo's eyes. If the eye state cannot be
       driven, enabling the mic is refused (fail closed). indicator_on always
       equals listening.
@@ -116,6 +120,8 @@ paths:
         Returns 202 with a playback_id even when the sound will be suppressed
         (muted, mic listening, duty, priority, capgood); the outcome is
         reported on WS as audio.playback. 409 is never used for mute.
+        API plays keep that playback_id on every event, suppressed included
+        (they have no cue_seq to match on).
       requestBody:
         required: true
         content:
@@ -245,7 +251,10 @@ components:
       pattern: "^[a-z][a-z0-9_]*$"
       examples: [beak_click, notice_quack, happy, sad_lost, boot, low_batt, fall_oops]
     PlaybackId:
-      description: Assigned only by the audio server. u64, monotonic within one boot.
+      description: |
+        Assigned only by the audio server. One u64 counter per boot, strictly
+        increasing within that boot, shared by api and loop sources. Unique
+        only together with boot_id.
       type: integer
       minimum: 0
     BootId:
@@ -297,22 +306,41 @@ components:
           required: [channels, direction]
           properties:
             channels: { type: integer, minimum: 1, examples: [1] }
-            direction: { type: boolean, description: false with one ICS43432 }
+            direction: { type: boolean, description: "false with one I2S MEMS mic (part TBD-Woz)" }
     AudioPlaybackEvent:
       description: |
         WS event audio.playback. One family for api and loop sources.
-        Loop events match on (boot_id, cue_seq); api events on playback_id.
+        boot_id is on every event, every state.
+        Matching: api events on (boot_id, playback_id). Loop events on
+        (boot_id, cue_seq); cue_seq is the loop's u32, strictly increasing
+        within one boot, separate from playback_id.
+        Loop cues that are suppressed are treated exactly like dropped:
+        playback_id is null and they match only on (boot_id, cue_seq).
+        Power-fail fallback: if interrupted(power_fail) was written before
+        power was lost, inferred is false or absent. Otherwise, on the next
+        boot the audio server closes every started event of the previous
+        boot_id that has no end state (finished, interrupted) as
+        interrupted(power_fail) with inferred: true, carrying the previous
+        boot_id, playback_id, cue_seq and the started event's mono_ms (the
+        real end time is unknown).
+        Only event semantics are specified; how the amp is muted on power
+        fail is a hardware decision (Woz) and out of scope.
       type: object
       required: [playback_id, cue_seq, source, sound, state, mono_ms, boot_id]
       properties:
         playback_id:
-          description: null only for state dropped (loop queue full, never reached the audio server).
+          description: |
+            null only for source loop with state dropped (loop queue full,
+            never reached the audio server) or suppressed. Never null for
+            source api.
           oneOf:
             - $ref: "#/components/schemas/PlaybackId"
             - type: "null"
         cue_seq:
-          description: Loop counter the cue was asked with; null for source api.
+          description: Loop counter (u32) the cue was asked with; null for source api.
           type: [integer, "null"]
+          minimum: 0
+          maximum: 4294967295
         source: { type: string, enum: [api, loop] }
         sound: { $ref: "#/components/schemas/SoundId" }
         state:
@@ -322,11 +350,16 @@ components:
           description: |
             interrupted: stop | preempted | safe_stop | power_fail.
             suppressed: muted | listening | duty | priority | capgood
-            (capgood = backup power not ready, LTC3226 CAPGOOD low).
+            (capgood = backup power not ready). capgood suppression holds
+            until the power re-arm latch clears (all 3 re-arm conditions,
+            TBD-Woz), not merely until LTC3226 CAPGOOD goes high again.
           type: [string, "null"]
           enum: [stop, preempted, safe_stop, power_fail, muted, listening, duty, priority, capgood, null]
         mono_ms: { type: integer, description: CLOCK_MONOTONIC ms }
         boot_id: { $ref: "#/components/schemas/BootId" }
+        inferred:
+          description: true only on an interrupted(power_fail) synthesized at the next boot. false or absent otherwise.
+          type: boolean
     MicLevelEvent:
       description: WS event mic.level, fixed 10 Hz, only while listening.
       type: object
@@ -339,7 +372,7 @@ components:
     MicSoundHeardEvent:
       description: WS event mic.sound_heard at onset.
       type: object
-      required: [sound_event_id, mono_ms, peak_dbfs, direction_deg, confidence, self_generated, self_motion, stance]
+      required: [sound_event_id, mono_ms, peak_dbfs, direction_deg, confidence, self_generated, self_motion, stance, stance_source]
       properties:
         sound_event_id: { type: integer, minimum: 0 }
         mono_ms: { type: integer, description: onset }
@@ -361,10 +394,17 @@ components:
             head: { type: boolean }
             antennas: { type: boolean }
             any: { type: boolean }
+            magnitude_rad_s: { type: number, minimum: 0 }
         stance:
-          description: Same values as gait.stance in telemetry.proto.
+          description: |
+            Same values as gait.stance in telemetry.proto (pending Atlas ack).
+            none = flight or fall only, never "unknown".
           type: string
-          enum: [double_support, left_support, right_support, airborne]
+          enum: [double_support, left_support, right_support, none]
+        stance_source:
+          description: contact = debounced SS-10 switches; phase = filled from gait phase on a switch fault.
+          type: string
+          enum: [contact, phase]
     MicSoundEndedEvent:
       description: WS event mic.sound_ended.
       type: object
