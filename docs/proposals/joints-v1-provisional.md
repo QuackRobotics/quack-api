@@ -38,8 +38,8 @@ Ranges are in radians.
 | 11 | right_hip_pitch | −0.5236 | +1.2217 | mirrored vs left |
 | 12 | right_knee | −1.5708 | +1.5708 | |
 | 13 | right_ankle | −1.5708 | +1.5708 | |
-| 14 | left_antenna | −1.5708 | +1.5708 | SG90; proposed (see Antennas) |
-| 15 | right_antenna | −1.5708 | +1.5708 | SG90; proposed (see Antennas) |
+| 14 | left_antenna | −0.7854 | +0.7854 | SG90 GPIO12; provisional |
+| 15 | right_antenna | −0.7854 | +0.7854 | SG90 GPIO13, sign −1; provisional |
 
 ## Rules
 
@@ -50,21 +50,27 @@ Ranges are in radians.
   (15 ms at 200 Hz). A stuck switch is a fault and sets
   `stance_source = PHASE`.
 
-## Antennas (14–15): open questions
+## Antennas (14–15): provisional, bench-confirm
 
-The pinned MJCF has 14 hinge joints and no antenna joints, so it does not
-confirm the antenna range. Upstream Open_Duck_Mini_Runtime (`e4a7ba6f`,
-`mini_bdx_runtime/antennas.py`) drives the antennas with a normalized value
-in [−1, 1] mapped to a 1–2 ms pulse, with `LEFT_ANTENNA_PIN = board.D13`,
-`RIGHT_ANTENNA_PIN = board.D12` and right sign −1. Until Atlas and Woz
-settle it:
+PROVISIONAL until Atlas and Woz bench-confirm pins, range and sign.
 
-- Range: ±1.5708 rad is proposed; a 1–2 ms SG90 pulse is usually narrower.
-- Pins: upstream has left = GPIO13, right = GPIO12, the reverse of the
-  10:14 proposal (left GPIO12, right GPIO13).
-- Units: radians in this API, normalized [−1, 1] in the upstream runtime.
+- Indices 14 and 15 are never part of the 14 policy actions or the 101
+  policy observations.
+- Pins: left = GPIO12 (header 32), right = GPIO13 (header 33), per the
+  Open_Duck_Mini v2 assembly guide (`docs/assembly_guide.md` at
+  `b23317a`). Conflict: upstream Open_Duck_Mini_Runtime (`e4a7ba6f`,
+  `mini_bdx_runtime/antennas.py`) has `LEFT_ANTENNA_PIN = board.D13`,
+  `RIGHT_ANTENNA_PIN = board.D12`. The bench check settles which is wired.
+- Command: normalized −1..1 mapped to a 1.0–2.0 ms pulse at 50 Hz.
+- Sign: right antenna is inverted (sign −1).
+- Range: ±45° (±0.7854 rad), provisional. The pinned MJCF has no antenna
+  joints, so it does not confirm the range.
+- Units: radians in this API; the normalized command is the driver's
+  concern.
+- Projector (GPIO25) is on/off only in v1 (no hardware PWM on that pin).
+  If the API exposes it, it is a boolean, not a brightness.
 
 ## TODO before this leaves proposals/
 
 - Hinton names the training commit; re-check joints 0–13 against it.
-- Settle antenna range, pins and sign (above).
+- Atlas and Woz bench-confirm antenna pins, range and sign (above).
