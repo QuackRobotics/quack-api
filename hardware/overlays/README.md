@@ -12,6 +12,13 @@ toggles SD_MODE with stream start/stop, so a power-fail or safe-stop mute must
 go through the audio server stopping the stream (or a separate gate), not by
 driving GPIO4 externally. Woz decides.
 
+Upstream: raspberrypi/linux branch `rpi-6.12.y`,
+`arch/arm/boot/dts/overlays/googlevoicehat-soundcard-overlay.dts`, last
+changed in commit `3a44d1cb497e2c28bdcbda21369111287be953db` (blob
+`1063f18985628833b4d143150fac34ce389741e0`). The upstream file has no SPDX
+header, so it falls under the kernel's `COPYING`: GPL-2.0-only. Our fork
+keeps `GPL-2.0-only`.
+
 Build:
 
 ```sh

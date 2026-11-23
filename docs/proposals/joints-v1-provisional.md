@@ -5,9 +5,16 @@ SPDX-License-Identifier: Apache-2.0
 
 # Joint table v1 (PROVISIONAL)
 
-Source: Atlas, 2026-11-23 10:14 Paris. Read from upstream
-Open_Duck_Playground `main` (last touched at `f698836`), not our pinned
-`b23317a`. Do not freeze until it has been diffed against `b23317a`.
+Source: Atlas, 2026-11-23 10:14 Paris.
+
+Provisional pin for joints 0–13: Open_Duck_Playground
+`f6988368da959156d94fcd53b76864724dc52860`,
+`playground/open_duck_mini_v2/xmls/open_duck_mini_v2.xml`
+(sha256 `968b18de4e3f55b31252155f52779fa490989f5da92bc9b308e0bb4e81d6bb5c`).
+`b23317a` is an Open_Duck_Mini commit and pins mechanics/BOM only.
+
+Never use the Open_Duck_Mini 16-actuator order (old `robot.xml`, antennas
+at 9–10). The freeze waits on Hinton naming his training commit.
 
 Indices 0–13 follow the policy/MJCF order. The antennas are 14–15.
 Ranges are in radians.
@@ -28,8 +35,8 @@ Ranges are in radians.
 | 11 | right_hip_pitch | −0.5236 | +1.2217 | mirrored vs left |
 | 12 | right_knee | −1.5708 | +1.5708 | |
 | 13 | right_ankle | −1.5708 | +1.5708 | |
-| 14 | left_antenna | −1.5708 | +1.5708 | SG90, GPIO12; proposed, unverified |
-| 15 | right_antenna | −1.5708 | +1.5708 | SG90, GPIO13; proposed, unverified |
+| 14 | left_antenna | −1.5708 | +1.5708 | SG90; proposed (see Antennas) |
+| 15 | right_antenna | −1.5708 | +1.5708 | SG90; proposed (see Antennas) |
 
 ## Rules
 
@@ -40,7 +47,21 @@ Ranges are in radians.
   (15 ms at 200 Hz). A stuck switch is a fault and sets
   `stance_source = PHASE`.
 
+## Antennas (14–15): open questions
+
+The pinned MJCF has 14 hinge joints and no antenna joints, so it does not
+confirm the antenna range. Upstream Open_Duck_Mini_Runtime (`e4a7ba6f`,
+`mini_bdx_runtime/antennas.py`) drives the antennas with a normalized value
+in [−1, 1] mapped to a 1–2 ms pulse, with `LEFT_ANTENNA_PIN = board.D13`,
+`RIGHT_ANTENNA_PIN = board.D12` and right sign −1. Until Atlas and Woz
+settle it:
+
+- Range: ±1.5708 rad is proposed; a 1–2 ms SG90 pulse is usually narrower.
+- Pins: upstream has left = GPIO13, right = GPIO12, the reverse of the
+  10:14 proposal (left GPIO12, right GPIO13).
+- Units: radians in this API, normalized [−1, 1] in the upstream runtime.
+
 ## TODO before this leaves proposals/
 
-- Diff against Open_Duck_Playground `b23317a`.
-- Verify the antenna ranges on hardware; they may narrow.
+- Hinton names the training commit; re-check joints 0–13 against it.
+- Settle antenna range, pins and sign (above).
