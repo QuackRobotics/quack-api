@@ -6,11 +6,13 @@ SPDX-License-Identifier: Apache-2.0
 # Audio overlay (draft)
 
 `quack-voicehat-overlay.dts`: googlevoicehat-soundcard fork with SD_MODE on
-GPIO4. MAX98357A speaker plus one I2S MEMS mic (part TBD-Woz), I2S 48 kHz, 2 x 32-bit slots
+GPIO4. MAX98357A speaker plus one TDK T5848 I2S MEMS mic, 1 channel (PROPOSED,
+Woz; the driver compatible string stays `ics43432`), I2S 48 kHz, 2 x 32-bit slots
 (64 fs, BCLK 3.072 MHz). The `googlevoicehat` codec driver owns GPIO4 and
 toggles SD_MODE with stream start/stop, so a power-fail or safe-stop mute must
 go through the audio server stopping the stream (or a separate gate), not by
-driving GPIO4 externally. Woz decides.
+driving GPIO4 externally. Woz decides. SD_MODE has a pull-down (`brcm,pull = <1>`), so the amp is
+muted by default until the driver raises it.
 
 Upstream: raspberrypi/linux branch `rpi-6.12.y`,
 `arch/arm/boot/dts/overlays/googlevoicehat-soundcard-overlay.dts`, last
@@ -33,3 +35,4 @@ Compiles with dtc 1.6.1 (1272 B). Not tested on a live kernel.
 - [ ] `aplay` and `arecord -f S32_LE -r 48000 -c 2` running at the same time
 - [ ] scope: BCLK 3.072 MHz, mic in the left slot
 - [ ] SD_MODE on GPIO4 follows stream start/stop
+- [ ] SD_MODE reads low (amp muted) with no stream and with the codec driver unloaded

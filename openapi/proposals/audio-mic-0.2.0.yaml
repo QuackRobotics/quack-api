@@ -314,7 +314,7 @@ components:
           required: [channels, direction]
           properties:
             channels: { type: integer, minimum: 1, examples: [1] }
-            direction: { type: boolean, description: "false with one I2S MEMS mic (part TBD-Woz)" }
+            direction: { type: boolean, description: "false with one TDK T5848 I2S MEMS mic, 1 channel (PROPOSED, Woz)" }
     AudioPlaybackEvent:
       description: |
         WS event audio.playback. One family for api and loop sources.

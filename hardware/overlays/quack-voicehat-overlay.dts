@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //
 // Fork of raspberrypi/linux arch/arm/boot/dts/overlays/googlevoicehat-soundcard-overlay.dts.
-// Only change: SD_MODE GPIO16 -> GPIO4 (brcm,pins and sdmode-gpios).
+// Changes: SD_MODE GPIO16 -> GPIO4 (brcm,pins and sdmode-gpios), and
+// SD_MODE pull-down (brcm,pull = <1>) so the amp is muted by default.
 // Replaces quack-audio (multi-codec simple-audio-card), which binds the
 // MAX98357A and silently drops the ICS43432 on rpi-6.6.y / rpi-6.12.y.
 // quack-voicehat: googlevoicehat-soundcard fork, SD_MODE on GPIO4 (was 16)
@@ -26,7 +27,7 @@
 			googlevoicehat_pins: googlevoicehat_pins {
 				brcm,pins = <4>;
 				brcm,function = <1>; /* out */
-				brcm,pull = <0>; /* up */
+				brcm,pull = <1>; /* down: amp muted by default */
 			};
 		};
 	};
