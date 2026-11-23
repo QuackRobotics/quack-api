@@ -120,8 +120,16 @@ paths:
         Returns 202 with a playback_id even when the sound will be suppressed
         (muted, mic listening, duty, priority, capgood); the outcome is
         reported on WS as audio.playback. 409 is never used for mute.
-        API plays keep that playback_id on every event, suppressed included
-        (they have no cue_seq to match on). Pending Atlas ack.
+        API plays (Atlas ack 2026-11-23 10:11):
+        - playback_id is assigned when the request is accepted, BEFORE the
+          suppression check, and returned in the 202. A suppressed play still
+          consumes the counter; a playback_id is never reused within a boot.
+        - Every event for that play, suppressed included (e.g.
+          suppressed(capgood)), carries the same playback_id and boot_id as
+          the 202. API plays have no cue_seq, so they match on
+          (boot_id, playback_id).
+        - The capgood re-arm latch and the interrupted(power_fail)
+          inferred: true fallback apply to API plays and loop cues alike.
       requestBody:
         required: true
         content:
@@ -314,8 +322,14 @@ components:
         Matching: api events on (boot_id, playback_id). Loop events on
         (boot_id, cue_seq); cue_seq is the loop's u32, strictly increasing
         within one boot, separate from playback_id.
-        Loop cues that are suppressed are treated exactly like dropped:
-        playback_id is null and they match only on (boot_id, cue_seq).
+        Suppressed, by source (Atlas ack 2026-11-23 10:11):
+        - loop: treated exactly like dropped. playback_id is null and the cue
+          matches only on (boot_id, cue_seq).
+        - api: keeps the playback_id returned in its 202 (assigned before the
+          suppression check, never reused within the boot) and matches on
+          (boot_id, playback_id).
+        The capgood re-arm latch and the power-fail fallback below apply to
+        both sources.
         Power-fail fallback: if interrupted(power_fail) was written before
         power was lost, inferred is false or absent. Otherwise, on the next
         boot the audio server closes every started event of the previous
