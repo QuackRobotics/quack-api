@@ -1,0 +1,141 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// DRAFT. Atlas owns the telemetry schema. Atlas reviewed caedaaa and acked
+// Stamp, stance, self_motion, GaitMode, FallSettled (2026-11-23 10:04).
+// Not referenced by codegen or CI gates. Field numbers may change until
+// it moves out of proposals/.
+
+syntax = "proto3";
+
+package quack.telemetry.v1alpha1;
+
+// Common header. mono_ms = CLOCK_MONOTONIC ms on the Pi.
+// boot_id = /proc/sys/kernel/random/boot_id.
+message Stamp {
+  uint64 mono_ms = 1;
+  string boot_id = 2;
+}
+
+enum Stance {
+  STANCE_UNSPECIFIED = 0;
+  STANCE_DOUBLE_SUPPORT = 1;
+  STANCE_LEFT_SUPPORT = 2;
+  STANCE_RIGHT_SUPPORT = 3;
+  // Flight or fall only. Never used to mean "unknown".
+  STANCE_NONE = 4;
+}
+
+enum StanceSource {
+  STANCE_SOURCE_UNSPECIFIED = 0;
+  // Debounced SS-10 switches: GPIO22 left, GPIO27 right, active-low.
+  STANCE_SOURCE_CONTACT = 1;
+  // Switch fault: stance filled in from the gait phase.
+  STANCE_SOURCE_PHASE = 2;
+}
+
+// gait.stance, 50 Hz.
+message GaitStance {
+  Stamp stamp = 1;
+  Stance stance = 2;
+  StanceSource stance_source = 3;
+}
+
+enum GaitMode {
+  GAIT_MODE_UNSPECIFIED = 0;
+  GAIT_MODE_STANDING = 1;
+  GAIT_MODE_WALKING = 2;
+  GAIT_MODE_TURNING = 3;
+  GAIT_MODE_STOPPING = 4;
+  GAIT_MODE_FALLEN = 5;
+  GAIT_MODE_RECOVERING = 6;
+  GAIT_MODE_SAFE_STOPPED = 7;
+}
+
+message GaitModeEvent {
+  Stamp stamp = 1;
+  GaitMode mode = 2;
+}
+
+// self_motion, published by the control loop at 50 Hz, one tick ahead of
+// the motion: set when the next-tick target moves a joint OR measured
+// |omega| > 0.05 rad/s. Consumers never compute it themselves.
+// legs/head: any joint |vel| > 0.05 rad/s or target changed that tick.
+// antennas: true for 300 ms after any command (SG90, no feedback). Also
+// drives the -12 dBFS speaker cap.
+// magnitude_rad_s: from commanded + measured joint |omega|, head included.
+message SelfMotion {
+  Stamp stamp = 1;
+  bool legs = 2;
+  bool head = 3;
+  bool antennas = 4;
+  bool any = 5;
+  double magnitude_rad_s = 6;
+}
+
+// fall.settled: after fall detect, trunk < 0.3 rad/s for 0.5 s, before stand-up.
+message FallSettled {
+  Stamp stamp = 1;
+  double trunk_pitch_rad = 2;
+  double trunk_roll_rad = 3;
+}
+
+enum StandUpAbortReason {
+  STAND_UP_ABORT_REASON_UNSPECIFIED = 0;
+  // Pack < 6.3 V for > 50 ms (10 samples at 200 Hz) during stand-up.
+  // Counts as 1 of 3 attempts. Not a power.* event.
+  STAND_UP_ABORT_REASON_UNDERVOLTAGE = 1;
+  // INA226 undervoltage alert (6.0 V), latched.
+  STAND_UP_ABORT_REASON_UNDERVOLTAGE_ALERT = 2;
+  // Overcurrent trip (fault). No retry.
+  STAND_UP_ABORT_REASON_OVERCURRENT_TRIP = 3;
+}
+
+message StandUpAborted {
+  Stamp stamp = 1;
+  StandUpAbortReason reason = 2;
+  uint32 attempt = 3;      // 1..3
+  double min_pack_v = 4;
+}
+
+// All thresholds provisional. The < 6.3 V > 50 ms level is a stand-up abort
+// (StandUpAbortReason), not a low-battery reason.
+enum LowBatteryReason {
+  LOW_BATTERY_REASON_UNSPECIFIED = 0;
+  // Stand-up gate: rest pack V below the per-unit gate (default 7.85 V).
+  LOW_BATTERY_REASON_STANDUP_GATE = 1;
+  // Gait trigger: rest pack V < 7.2 V.
+  LOW_BATTERY_REASON_REST = 2;
+  // Gait trigger: loaded pack V < 6.8 V.
+  LOW_BATTERY_REASON_LOADED = 3;
+}
+
+// power.low_battery. threshold_v is the threshold for this reason.
+// Stand-up gate is per-robot config: default 7.85 V (3.92 V/cell) until the
+// unit is bench-measured, then 6.3 + I_su * R + 0.1, where I_su = that unit's
+// measured stand-up peak current + 10%. May rise automatically from R
+// estimated per logged stand-up (INA226 pack current + voltage); never
+// lowered without a bench measurement. Re-emitted when threshold_v rises.
+// If the INA226 fails: R = bench R + 15 mOhm, re-benched every 50 cycles.
+message LowBattery {
+  Stamp stamp = 1;
+  double pack_v = 2;
+  double per_cell_v = 3;
+  double threshold_v = 4;
+  optional double r_mohm = 5;  // unset while the 7.85 V default is in use
+  LowBatteryReason reason = 6;
+}
+
+// power.fail, from PFI. Separate from LowBattery, never merged.
+// Latches until power.rearm. Both events are always logged.
+message PowerFail {
+  Stamp stamp = 1;
+}
+
+// power.rearm: operator re-arm after power.fail. Emitted only when all three
+// hold: CAPGOOD high, rest pack V >= stand-up gate, explicit operator action.
+message PowerRearm {
+  Stamp stamp = 1;
+  double rest_pack_v = 2;
+  double gate_v = 3;
+}

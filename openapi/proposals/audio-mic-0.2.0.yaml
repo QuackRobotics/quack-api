@@ -1,0 +1,431 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# DRAFT PROPOSAL, NOT THE CONTRACT. Not referenced by codegen or CI gates.
+# Moves into openapi/quack-api.yaml only after Woz sign-off and Luxo ack.
+# Additive to 0.1.0: minor bump to 0.2.0, nothing breaking.
+
+openapi: 3.1.0
+info:
+  title: quack-api audio + mic (proposal)
+  version: 0.2.0-draft
+  description: |
+    Speaker and microphone routes for REST :8080. Telemetry events
+    (audio.playback, mic.*) travel on WS :8081; their payload schemas are
+    defined here under components.schemas (JSON on WS). A proto mirror
+    comes with the WS/gRPC work; gait/self_motion/power telemetry is in
+    proto/proposals/quack/telemetry/v1alpha1/telemetry.proto.
+
+    Privacy rules enforced by the server, not by clients:
+    - Mic is off at every boot. No API setting changes that default.
+    - Mute wins over enabled.
+    - Mic v1 is level + onset only, computed on the robot (mic.level,
+      mic.sound_heard, mic.sound_ended). Raw audio is never logged and never
+      sent off the robot by default, and is never fed to the walking policy.
+      No route returns PCM, recordings or files.
+    - The listening indicator is Luxo's eyes. If the eye state cannot be
+      driven, enabling the mic is refused (fail closed). indicator_on always
+      equals listening.
+
+    Backends: QUACK_AUDIO=mock and QUACK_MIC=mock are the defaults. real is
+    refused at startup until the hardware is confirmed (same guard as joint
+    limits).
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /audio:
+    get:
+      operationId: getAudio
+      summary: Speaker state, volume and caps
+      responses:
+        "200":
+          description: Current speaker state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioState" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/volume:
+    put:
+      operationId: setAudioVolume
+      summary: Set volume in dBFS
+      description: |
+        A volume above effective_max_db is rejected with 422 invalid_audio.
+        The server never silently clamps.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [volume_db]
+              properties:
+                volume_db: { type: number, maximum: 0 }
+      responses:
+        "200":
+          description: Updated state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioState" }
+        "400": { $ref: "#/components/responses/InvalidBody" }
+        "422": { $ref: "#/components/responses/InvalidAudio" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/mute:
+    put:
+      operationId: setAudioMute
+      summary: Mute or unmute the speaker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [muted]
+              properties:
+                muted: { type: boolean }
+      responses:
+        "200":
+          description: Updated state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioState" }
+        "400": { $ref: "#/components/responses/InvalidBody" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/sounds:
+    get:
+      operationId: listSounds
+      summary: Read-only sound catalog
+      description: |
+        Files live at $QUACK_SOUNDS_DIR/<id>.opus (default
+        /usr/share/quack/sounds, on the RAUC rootfs). Ogg Opus, mono, 48 kHz.
+        Checked at startup; a missing or invalid file makes that sound
+        return 503 on play, it does not crash the server.
+      responses:
+        "200":
+          description: Sound catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Sound" }
+  /audio/play:
+    post:
+      operationId: playSound
+      summary: Queue a sound; returns before playback finishes
+      description: |
+        Returns 202 with a playback_id even when the sound will be suppressed
+        (muted, mic listening, duty, priority, capgood); the outcome is
+        reported on WS as audio.playback. 409 is never used for mute.
+        API plays (Atlas ack 2026-11-23 10:11):
+        - playback_id is assigned when the request is accepted, BEFORE the
+          suppression check, and returned in the 202. A suppressed play still
+          consumes the counter; a playback_id is never reused within a boot.
+        - Every event for that play, suppressed included (e.g.
+          suppressed(capgood)), carries the same playback_id and boot_id as
+          the 202. API plays have no cue_seq, so they match on
+          (boot_id, playback_id).
+        - The capgood re-arm latch and the interrupted(power_fail)
+          inferred: true fallback apply to API plays and loop cues alike.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sound]
+              properties:
+                sound: { $ref: "#/components/schemas/SoundId" }
+                volume_db:
+                  type: number
+                  maximum: 0
+                  description: Above effective_max_db gives 422, never a clamp.
+                interrupt: { type: boolean, default: true }
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [playback_id, boot_id]
+                properties:
+                  playback_id: { $ref: "#/components/schemas/PlaybackId" }
+                  boot_id: { $ref: "#/components/schemas/BootId" }
+        "400": { $ref: "#/components/responses/InvalidBody" }
+        "404":
+          description: unknown_sound
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/InvalidAudio" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/stop:
+    post:
+      operationId: stopSound
+      summary: Stop current playback (emits interrupted, reason stop)
+      responses:
+        "204": { description: "Stopped, or nothing was playing" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/mic:
+    get:
+      operationId: getMic
+      summary: Mic state and capabilities
+      responses:
+        "200":
+          description: Mic state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MicState" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+    put:
+      operationId: setMicEnabled
+      summary: Enable or disable listening
+      description: |
+        Refused with 503 hardware_unavailable if the eye indicator cannot be
+        driven (fail closed). Off again after every reboot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MicState" }
+        "400": { $ref: "#/components/responses/InvalidBody" }
+        "503": { $ref: "#/components/responses/HardwareUnavailable" }
+  /audio/mic/mute:
+    put:
+      operationId: setMicMute
+      summary: Privacy switch; wins over enabled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [muted]
+              properties:
+                muted: { type: boolean }
+      responses:
+        "200":
+          description: Updated state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MicState" }
+        "400": { $ref: "#/components/responses/InvalidBody" }
+components:
+  responses:
+    InvalidBody:
+      description: invalid_body
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidAudio:
+      description: invalid_audio (out of range or above effective_max_db)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    HardwareUnavailable:
+      description: hardware_unavailable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      description: Same envelope as /state.
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [invalid_body, invalid_audio, unknown_sound, hardware_unavailable]
+        message: { type: string }
+    SoundId:
+      type: string
+      pattern: "^[a-z][a-z0-9_]*$"
+      examples: [beak_click, notice_quack, happy, sad_lost, boot, low_batt, fall_oops]
+    PlaybackId:
+      description: |
+        Assigned only by the audio server. One u64 counter per boot, strictly
+        increasing within that boot, shared by api and loop sources. Unique
+        only together with boot_id.
+      type: integer
+      minimum: 0
+    BootId:
+      description: Contents of /proc/sys/kernel/random/boot_id; same across processes.
+      type: string
+      format: uuid
+    AudioState:
+      type: object
+      required: [volume_db, muted, max_volume_db, effective_max_db, playing]
+      properties:
+        volume_db: { type: number, maximum: 0 }
+        muted: { type: boolean }
+        max_volume_db:
+          description: Server config, not settable via API. Woz 2026-11-23 -6 dBFS.
+          type: number
+          maximum: 0
+          examples: [-6]
+        effective_max_db:
+          description: Cap in force now. -12 dBFS while any SG90 moves (self_motion.antennas), else max_volume_db.
+          type: number
+          maximum: 0
+          examples: [-6, -12]
+        playing:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [playback_id, sound, mono_ms]
+              properties:
+                playback_id: { $ref: "#/components/schemas/PlaybackId" }
+                sound: { $ref: "#/components/schemas/SoundId" }
+                mono_ms: { type: integer, description: CLOCK_MONOTONIC ms at start }
+    Sound:
+      type: object
+      required: [id, duration_ms, sha256]
+      properties:
+        id: { $ref: "#/components/schemas/SoundId" }
+        duration_ms: { type: integer, minimum: 0 }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+    MicState:
+      type: object
+      required: [enabled, muted, listening, indicator_on, capabilities]
+      properties:
+        enabled: { type: boolean }
+        muted: { type: boolean }
+        listening: { type: boolean, description: enabled and not muted }
+        indicator_on: { type: boolean, description: Luxo's eyes; always equals listening }
+        capabilities:
+          type: object
+          required: [channels, direction]
+          properties:
+            channels: { type: integer, minimum: 1, examples: [1] }
+            direction: { type: boolean, description: "false with one TDK T5848 I2S MEMS mic, 1 channel (PROPOSED, Woz)" }
+    AudioPlaybackEvent:
+      description: |
+        WS event audio.playback. One family for api and loop sources.
+        boot_id is on every event, every state.
+        Matching: api events on (boot_id, playback_id). Loop events on
+        (boot_id, cue_seq); cue_seq is the loop's u32, strictly increasing
+        within one boot, separate from playback_id.
+        Suppressed, by source (Atlas ack 2026-11-23 10:11):
+        - loop: treated exactly like dropped. playback_id is null and the cue
+          matches only on (boot_id, cue_seq).
+        - api: keeps the playback_id returned in its 202 (assigned before the
+          suppression check, never reused within the boot) and matches on
+          (boot_id, playback_id).
+        The capgood re-arm latch and the power-fail fallback below apply to
+        both sources.
+        Power-fail fallback: if interrupted(power_fail) was written before
+        power was lost, inferred is false or absent. Otherwise, on the next
+        boot the audio server closes every started event of the previous
+        boot_id that has no end state (finished, interrupted) as
+        interrupted(power_fail) with inferred: true, carrying the previous
+        boot_id, playback_id, cue_seq and the started event's mono_ms (the
+        real end time is unknown).
+        Only event semantics are specified; how the amp is muted on power
+        fail is a hardware decision (Woz) and out of scope.
+      type: object
+      required: [playback_id, cue_seq, source, sound, state, mono_ms, boot_id]
+      properties:
+        playback_id:
+          description: |
+            null only for source loop with state dropped (loop queue full,
+            never reached the audio server) or suppressed. Never null for
+            source api.
+          oneOf:
+            - $ref: "#/components/schemas/PlaybackId"
+            - type: "null"
+        cue_seq:
+          description: Loop counter (u32) the cue was asked with; null for source api.
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 4294967295
+        source: { type: string, enum: [api, loop] }
+        sound: { $ref: "#/components/schemas/SoundId" }
+        state:
+          type: string
+          enum: [started, finished, interrupted, suppressed, dropped]
+        reason:
+          description: |
+            interrupted: stop | preempted | safe_stop | power_fail.
+            suppressed: muted | listening | duty | priority | capgood
+            (capgood = backup power not ready). capgood suppression holds
+            until the power re-arm latch clears (CAPGOOD high + rest pack V
+            >= stand-up gate + explicit operator action, logged as
+            power.rearm), not merely until LTC3226 CAPGOOD goes high again.
+          type: [string, "null"]
+          enum: [stop, preempted, safe_stop, power_fail, muted, listening, duty, priority, capgood, null]
+        mono_ms: { type: integer, description: CLOCK_MONOTONIC ms }
+        boot_id: { $ref: "#/components/schemas/BootId" }
+        inferred:
+          description: true only on an interrupted(power_fail) synthesized at the next boot. false or absent otherwise.
+          type: boolean
+    MicLevelEvent:
+      description: WS event mic.level, fixed 10 Hz, only while listening.
+      type: object
+      required: [rms_dbfs, peak_dbfs, noise_floor_dbfs, mono_ms]
+      properties:
+        rms_dbfs: { type: number, maximum: 0 }
+        peak_dbfs: { type: number, maximum: 0 }
+        noise_floor_dbfs: { type: [number, "null"], maximum: 0 }
+        mono_ms: { type: integer }
+    MicSoundHeardEvent:
+      description: WS event mic.sound_heard at onset.
+      type: object
+      required: [sound_event_id, mono_ms, peak_dbfs, direction_deg, confidence, self_generated, self_motion, stance, stance_source]
+      properties:
+        sound_event_id: { type: integer, minimum: 0 }
+        mono_ms: { type: integer, description: onset }
+        peak_dbfs: { type: number, maximum: 0 }
+        direction_deg:
+          description: Trunk frame, 0 ahead, left positive. null with one mic.
+          type: [number, "null"]
+          minimum: -180
+          maximum: 180
+        confidence: { type: [number, "null"], minimum: 0, maximum: 1 }
+        self_generated:
+          description: True while the speaker plays and QUACK_SELF_AUDIO_TAIL_MS (150) after.
+          type: boolean
+        self_motion:
+          type: object
+          required: [legs, head, antennas, any]
+          properties:
+            legs: { type: boolean }
+            head: { type: boolean }
+            antennas: { type: boolean }
+            any: { type: boolean }
+            magnitude_rad_s: { type: number, minimum: 0 }
+        stance:
+          description: |
+            Same values as gait.stance in telemetry.proto.
+            none = flight or fall only, never "unknown".
+          type: string
+          enum: [double_support, left_support, right_support, none]
+        stance_source:
+          description: contact = debounced SS-10 switches; phase = filled from gait phase on a switch fault.
+          type: string
+          enum: [contact, phase]
+    MicSoundEndedEvent:
+      description: WS event mic.sound_ended.
+      type: object
+      required: [sound_event_id, mono_ms, duration_ms, peak_dbfs]
+      properties:
+        sound_event_id: { type: integer, minimum: 0 }
+        mono_ms: { type: integer }
+        duration_ms: { type: integer, minimum: 0 }
+        peak_dbfs: { type: number, maximum: 0 }
