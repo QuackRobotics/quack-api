@@ -59,14 +59,29 @@ jobs:
       - run: quack-sdk-gen/test-python.sh
       - run: quack-sdk-gen/test-typescript.sh
 
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.13.1"
+      - run: quack-sdk-gen/gen-typescript.sh
+      - run: npm ci --no-audit --no-fund
+        working-directory: quack-dashboard
+      - run: npm test
+        working-directory: quack-dashboard
+      - run: npm run build
+        working-directory: quack-dashboard
+
   ci:
-    needs: [rust, proto, openapi, sdk]
+    needs: [rust, proto, openapi, sdk, dashboard]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all required jobs passed
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
         run: |
-          echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }} sdk=${{ needs.sdk.result }}"
+          echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }} sdk=${{ needs.sdk.result }} dashboard=${{ needs.dashboard.result }}"
           exit 1
-      - run: echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }} sdk=${{ needs.sdk.result }}"
+      - run: echo "rust=${{ needs.rust.result }} proto=${{ needs.proto.result }} openapi=${{ needs.openapi.result }} sdk=${{ needs.sdk.result }} dashboard=${{ needs.dashboard.result }}"
