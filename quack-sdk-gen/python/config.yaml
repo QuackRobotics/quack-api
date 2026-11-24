@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+
+# openapi-python-client config for the Python SDK (PyPI name quack-sdk).
+project_name_override: quack-sdk
+package_name_override: quack_sdk
