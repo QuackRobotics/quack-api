@@ -19,6 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use quack_core::joint::JointState;
+use quack_core::limits::limit_for;
 use serde::{Deserialize, Serialize};
 
 use crate::hardware::{Hardware, JointTarget};
@@ -217,6 +218,15 @@ fn validate_move(
                 return Err(invalid(format!(
                     "position_rad for {} must be finite",
                     target.name
+                )));
+            }
+            let limit = limit_for(&target.name).ok_or_else(|| {
+                invalid(format!("no position limit configured for {}", target.name))
+            })?;
+            if !limit.contains(target.position_rad) {
+                return Err(invalid(format!(
+                    "{} target {} rad is outside [{}, {}] rad",
+                    target.name, target.position_rad, limit.min_rad, limit.max_rad
                 )));
             }
             Ok(JointTarget {

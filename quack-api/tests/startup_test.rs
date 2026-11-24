@@ -10,25 +10,27 @@ fn defaults_to_mock() {
 }
 
 #[test]
-fn real_hardware_without_limits_is_refused() {
+fn blank_joint_limits_env_counts_as_unset() {
+    assert_eq!(check(Some("mock"), Some("")), Ok(Backend::Mock));
+    assert_eq!(check(Some("mock"), Some("  ")), Ok(Backend::Mock));
+}
+
+#[test]
+fn joint_limits_env_is_refused_on_every_backend() {
     assert_eq!(
-        check(Some("real"), None),
-        Err(StartupError::JointLimitsMissing)
+        check(Some("mock"), Some("limits.toml")),
+        Err(StartupError::JointLimitsOverride)
     );
     assert_eq!(
-        check(Some("real"), Some("")),
-        Err(StartupError::JointLimitsMissing)
-    );
-    assert_eq!(
-        check(Some("real"), Some("  ")),
-        Err(StartupError::JointLimitsMissing)
+        check(Some("real"), Some("limits.toml")),
+        Err(StartupError::JointLimitsOverride)
     );
 }
 
 #[test]
-fn real_hardware_with_limits_is_still_refused_until_a_driver_exists() {
+fn real_hardware_is_refused_until_a_driver_exists() {
     assert_eq!(
-        check(Some("real"), Some("limits.toml")),
+        check(Some("real"), None),
         Err(StartupError::RealBackendNotImplemented)
     );
 }
@@ -36,7 +38,7 @@ fn real_hardware_with_limits_is_still_refused_until_a_driver_exists() {
 #[test]
 fn unknown_backend_is_refused() {
     assert_eq!(
-        check(Some("Real"), Some("limits.toml")),
+        check(Some("Real"), None),
         Err(StartupError::UnknownBackend("Real".to_string()))
     );
 }

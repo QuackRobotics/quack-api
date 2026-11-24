@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Quack Robotics contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Startup guard: the server only runs against real hardware once per-joint
-//! position limits are configured. `POST /state` has no limit check of its
-//! own yet, so this guard is what keeps an unchecked move off real servos.
+//! Startup guard. Joint limits have one source: the compiled-in table in
+//! `quack_core::limits`. There is no runtime override, so a set
+//! `QUACK_JOINT_LIMITS` is refused rather than silently ignored. Real hardware
+//! is refused until a real driver exists.
 
 use std::fmt;
 
@@ -21,9 +22,10 @@ pub enum Backend {
 pub enum StartupError {
     /// `QUACK_HARDWARE` held something other than `mock` or `real`.
     UnknownBackend(String),
-    /// Real hardware was requested without `QUACK_JOINT_LIMITS`.
-    JointLimitsMissing,
-    /// Limits are configured, but no real hardware driver exists yet.
+    /// `QUACK_JOINT_LIMITS` was set, but limits come only from the
+    /// compiled-in table.
+    JointLimitsOverride,
+    /// No real hardware driver exists yet.
     RealBackendNotImplemented,
 }
 
@@ -33,9 +35,9 @@ impl fmt::Display for StartupError {
             Self::UnknownBackend(value) => {
                 write!(f, "QUACK_HARDWARE={value:?} is not one of: mock, real")
             }
-            Self::JointLimitsMissing => write!(
+            Self::JointLimitsOverride => write!(
                 f,
-                "refusing to start on real hardware: per-joint position limits are not configured (set QUACK_JOINT_LIMITS)"
+                "QUACK_JOINT_LIMITS is not supported: joint limits come only from the compiled-in table (quack_core::limits); unset it"
             ),
             Self::RealBackendNotImplemented => {
                 write!(f, "real hardware backend is not implemented yet")
@@ -54,10 +56,10 @@ pub fn check(hardware: Option<&str>, joint_limits: Option<&str>) -> Result<Backe
         "real" => Backend::Real,
         other => return Err(StartupError::UnknownBackend(other.to_string())),
     };
+    if joint_limits.is_some_and(|value| !value.trim().is_empty()) {
+        return Err(StartupError::JointLimitsOverride);
+    }
     if backend == Backend::Real {
-        if joint_limits.is_none_or(|value| value.trim().is_empty()) {
-            return Err(StartupError::JointLimitsMissing);
-        }
         return Err(StartupError::RealBackendNotImplemented);
     }
     Ok(backend)

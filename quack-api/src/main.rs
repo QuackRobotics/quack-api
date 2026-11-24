@@ -6,8 +6,9 @@
 //! - WebSocket telemetry: `QUACK_WS_ADDR`, default 127.0.0.1:8081
 //! - gRPC control: `QUACK_GRPC_ADDR`, default 127.0.0.1:50051
 //!
-//! Backend: `QUACK_HARDWARE` = `mock` (default) or `real`; `real` needs
-//! `QUACK_JOINT_LIMITS` and is refused until a real driver exists.
+//! Backend: `QUACK_HARDWARE` = `mock` (default) or `real`; `real` is refused
+//! until a real driver exists. Joint limits are compiled in; a set
+//! `QUACK_JOINT_LIMITS` is refused.
 
 use std::sync::Arc;
 
