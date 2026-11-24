@@ -28,20 +28,31 @@ info:
     Composition. The commanded position of a joint is its active POST /state
     target plus the current offset. POST /state is validated on its own,
     exactly as without an expression, and is never rejected because an
-    expression is playing. At each 50 Hz tick, if target + offset would
-    leave the joint's limits, that joint's offset is reduced until the sum
-    fits. The reduction is reported, not silent: GET /expression/{id} shows
-    the joint as scaled with reason limit_headroom. Admission 422s are for
-    malformed requests only, never for a composed target.
+    expression is playing. Admission 422s are for malformed requests only,
+    never for a composed target.
 
-    HAL. The projector head limits, the audio gain cap, the head soft limit
-    and the SG90/audio current interlock live only in the HAL (Atlas), not
-    here. The HAL reports per joint and for audio whether it applied,
-    scaled or rejected the request, with a reason; that one field also
-    covers balance-controller scaling. While the projector is mounted, the
-    HAL rejects or scales head offsets that cross its projector clearance
-    limits (interim floor now, final table later) and reports reason
-    `projector_mounted`.
+    HAL. At admission the API hands the HAL the whole keyframe track (after
+    the 15% clamp). The HAL evaluates it at each 50 Hz tick; the API never
+    streams offsets. Each tick the HAL adds the live target and the offset,
+    then runs a fixed order, one reason per step:
+      1. clamp to the joint limit table: the offset is reduced until
+         target + offset fits (reason limit_headroom);
+      2. projector envelope (reason projector_mounted);
+      3. balance scaling (reason balance_controller);
+      4. the same slew limit that POST /state targets pass through.
+    Every reduction is reported, not silent: GET /expression/{id} shows the
+    joint as scaled with that step's reason. The HAL sets every reason; the
+    API only passes the outcome on.
+
+    Projector. The projector clearance limits (interim floor now, final
+    table later), the audio gain cap, the head soft limit and the SG90/audio
+    current interlock live only in the HAL (Atlas), not here. The envelope
+    may couple head joints: while the projector is mounted the HAL scales
+    the whole head offset by one factor alpha in [0, 1] and reports scaled
+    with reason projector_mounted. If the POST /state target itself is
+    outside the envelope, the HAL holds the last valid head pose and
+    reports projector_mounted. The HAL reports per joint and for audio
+    whether it applied, scaled or rejected, with a reason.
 
     Timing. Playback is sampled on the 50 Hz control tick (20 ms); times
     that are not multiples of 20 ms take effect on the next tick. No timing
@@ -309,10 +320,10 @@ components:
           enum: [applied, scaled, rejected]
         reason:
           description: >-
-            Set when scaled or rejected, for example projector_mounted,
-            balance_controller, gain_cap, current_interlock, or
-            limit_headroom (set by the API when target + offset would leave
-            the joint limits and the offset was reduced to fit).
+            Set when scaled or rejected, always by the HAL (the API only
+            passes it on), for example limit_headroom (target + offset
+            clamped to the joint limit table), projector_mounted,
+            balance_controller, gain_cap or current_interlock.
           type: string
     HalReport:
       type: object
@@ -336,8 +347,8 @@ components:
         applied_keyframes:
           description: >-
             The request keyframes after the 15% clamp: the offsets that will
-            actually be commanded (before any HAL scaling or limit_headroom
-            reduction).
+            actually be commanded, as the HAL receives them (before any
+            per-tick HAL reduction, limit_headroom included).
           type: array
           maxItems: 64
           items:
