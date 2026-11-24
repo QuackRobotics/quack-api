@@ -233,3 +233,42 @@ async fn invalid_servo_id_from_hardware_is_500_not_passed_through() {
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(parse::<ApiError>(&bytes).code, "invalid_hardware_state");
 }
+
+#[tokio::test]
+async fn post_state_rejects_target_outside_joint_limits_without_moving() {
+    let app = app();
+    let body = json!({"joints": [{"name": "left_knee", "position_rad": 0.5}, {"name": "head_yaw", "position_rad": 2.9}]});
+    let (status, bytes) = post_move(app.clone(), body).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let error: ApiError = parse(&bytes);
+    assert_eq!(error.code, "invalid_move");
+    assert!(error.message.contains("head_yaw"), "{}", error.message);
+    assert!(error.message.contains("outside"), "{}", error.message);
+
+    let (_, bytes) = call(app, Method::GET, "/state", None).await;
+    let state: RobotState = parse(&bytes);
+    assert!(state.joints.iter().all(|joint| joint.position_rad == 0.0));
+}
+
+#[tokio::test]
+async fn post_state_accepts_targets_exactly_on_joint_limits() {
+    let body = json!({"joints": [{"name": "left_hip_pitch", "position_rad": -1.2217}, {"name": "right_hip_pitch", "position_rad": 1.2217}]});
+    let (status, bytes) = post_move(app(), body).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&bytes)
+    );
+}
+
+#[tokio::test]
+async fn post_state_checks_mirrored_hip_pitch_per_side() {
+    for (name, position_rad) in [("left_hip_pitch", 1.2217), ("right_hip_pitch", -1.2217)] {
+        let body = json!({"joints": [{"name": name, "position_rad": position_rad}]});
+        let (status, bytes) = post_move(app(), body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{name}");
+        let error: ApiError = parse(&bytes);
+        assert!(error.message.contains(name), "{}", error.message);
+    }
+}

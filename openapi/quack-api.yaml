@@ -70,7 +70,10 @@ paths:
       summary: Move joints and wait until the move has finished
       description: >-
         Synchronous move. All targets are validated before anything moves;
-        on any error nothing moves. Returns the state after the move.
+        on any error nothing moves. Every target must lie within its joint's
+        inclusive position limits (joint table v1, PROVISIONAL); a target
+        outside them is rejected with 422 invalid_move naming the joint, never
+        clamped. Returns the state after the move.
       requestBody:
         required: true
         content:
@@ -97,7 +100,8 @@ components:
     Error:
       description: >-
         400 invalid_body (malformed JSON or missing fields), 422 invalid_move
-        (empty, unknown or duplicate joint, non-finite position), 500
+        (empty, unknown or duplicate joint, non-finite position, position
+        outside the joint's limits), 500
         invalid_hardware_state, 503 hardware_unavailable.
       content:
         application/json:

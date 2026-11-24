@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Startup guard: the server only runs against real hardware once per-joint
-//! position limits are configured. `POST /state` has no limit check of its
-//! own yet, so this guard is what keeps an unchecked move off real servos.
+//! position limits are configured. Moves are already checked against the
+//! provisional compiled-in table (`quack_core::limits`); this guard stays
+//! until a real driver and its bench-confirmed limits exist.
 
 use std::fmt;
 

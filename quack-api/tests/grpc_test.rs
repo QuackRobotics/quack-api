@@ -91,6 +91,10 @@ async fn move_joints_rejects_invalid_moves_like_rest() {
             "listed twice",
         ),
         (vec![target("left_knee", f32::NAN)], "must be finite"),
+        (
+            vec![target("head_yaw", 2.9)],
+            "head_yaw target 2.9 rad is outside",
+        ),
     ] {
         let status = client
             .move_joints(MoveJointsRequest { joints })
