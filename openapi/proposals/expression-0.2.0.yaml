@@ -38,9 +38,10 @@ info:
     and the SG90/audio current interlock live only in the HAL (Atlas), not
     here. The HAL reports per joint and for audio whether it applied,
     scaled or rejected the request, with a reason; that one field also
-    covers balance-controller scaling. Until the HAL projector limit lands,
-    the HAL rejects head offsets while the projector is mounted, and the
-    API reports that outcome.
+    covers balance-controller scaling. While the projector is mounted, the
+    HAL rejects or scales head offsets that cross its projector clearance
+    limits (interim floor now, final table later) and reports reason
+    `projector_mounted`.
 
     Timing. Playback is sampled on the 50 Hz control tick (20 ms); times
     that are not multiples of 20 ms take effect on the next tick. No timing
