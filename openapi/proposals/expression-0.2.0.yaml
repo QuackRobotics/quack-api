@@ -1,0 +1,341 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# DRAFT PROPOSAL, NOT THE CONTRACT. Not referenced by codegen or CI gates.
+# Moves into openapi/quack-api.yaml only after Luxo and Atlas ack.
+# Additive to 0.1.0: minor bump to 0.2.0, nothing breaking.
+
+openapi: 3.1.0
+info:
+  title: quack-api expression offsets (proposal)
+  version: 0.2.0-draft
+  description: |
+    Expressive head and antenna motion layered on top of the active joint
+    targets, plus eyes and a short sound on the same timeline (REST :8080).
+
+    Offsets are additive, never absolute. Whole-body poses stay on
+    POST /state; the projector LED is out of scope.
+
+    Limits. Every offset is clamped to at most 15% of its joint's range,
+    using the same joint table v1 (PROVISIONAL, quack_core::limits) that
+    POST /state and gRPC MoveJoints check. The clamp is part of this
+    contract and the response returns the offsets actually applied.
+    Reference maxima (rad, 15% of max - min, rounded down): neck_pitch
+    0.2225, head_pitch 0.2356, head_yaw 0.8377, head_roll 0.1570,
+    left_antenna 0.2356, right_antenna 0.2356. The server derives them from
+    the table, so they follow any table change.
+
+    Composition. The commanded position of a joint is its active POST /state
+    target plus the current offset. That sum must stay inside the joint's
+    limits: an expression whose applied offsets would leave the limits
+    against the current target is rejected with 422 invalid_expression, and
+    while an expression plays, a POST /state target whose sum with the live
+    offset leaves the limits is rejected with 422 invalid_move. Nothing is
+    clamped silently beyond the 15% rule above.
+
+    HAL. The projector head limits, the audio gain cap, the head soft limit
+    and the SG90/audio current interlock live only in the HAL (Atlas), not
+    here. The HAL reports per joint and for audio whether it applied,
+    scaled or rejected the request, with a reason; that one field also
+    covers balance-controller scaling. Until the HAL projector limit lands,
+    the HAL rejects head offsets while the projector is mounted, and the
+    API reports that outcome.
+
+    Timing. Playback is sampled on the 50 Hz control tick (20 ms); times
+    that are not multiples of 20 ms take effect on the next tick. No timing
+    has a server default: every duration is given by the caller.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+    description: Local development (mock hardware)
+tags:
+  - name: expression
+paths:
+  /expression:
+    post:
+      operationId: playExpression
+      tags: [expression]
+      summary: Start (or queue) an expression
+      description: >-
+        Validates the whole request before anything plays; on any error
+        nothing plays. Returns once the expression is accepted, not when it
+        finishes. interrupt=replace blends out the active expression (with
+        its own blend_out_ms) when the new priority is greater than or equal
+        to the active one, and is rejected with 409 expression_conflict when
+        it is lower. interrupt=queue starts after the active and already
+        queued expressions finish.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpressionRequest"
+      responses:
+        "202":
+          description: Accepted; applied offsets and HAL admission outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionAccepted"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /expression/{expression_id}:
+    parameters:
+      - name: expression_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getExpression
+      tags: [expression]
+      summary: Status of an expression and the latest HAL outcome
+      responses:
+        "200":
+          description: Current status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: cancelExpression
+      tags: [expression]
+      summary: Cancel an expression
+      description: >-
+        A playing expression blends out over its blend_out_ms, then its
+        offsets are 0. A queued one is dropped. Cancelling a finished or
+        cancelled expression is a no-op and returns its status.
+      responses:
+        "202":
+          description: Cancel accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  responses:
+    Error:
+      description: >-
+        400 invalid_body (malformed JSON or missing fields), 404 not_found,
+        409 expression_conflict (lower priority than the active expression
+        with interrupt=replace), 422 invalid_expression (unknown joint,
+        unknown sound_id, bad easing, missing bezier, t_ms not strictly
+        increasing, or composed target outside the joint limits; the message
+        names the field), 503 hardware_unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+  schemas:
+    Offsets:
+      description: >-
+        Additive offsets in radians, same unit as POST /state. Missing
+        joints are 0. Leg joints are not accepted.
+      type: object
+      additionalProperties: false
+      properties:
+        neck_pitch:
+          type: number
+        head_pitch:
+          type: number
+        head_yaw:
+          type: number
+        head_roll:
+          type: number
+        left_antenna:
+          type: number
+        right_antenna:
+          type: number
+    Easing:
+      type: string
+      enum: [linear, ease_in, ease_out, ease_in_out, cubic_bezier]
+    Keyframe:
+      type: object
+      required: [t_ms, offsets]
+      additionalProperties: false
+      properties:
+        t_ms:
+          description: >-
+            Time from the start of the expression. Strictly increasing
+            across keyframes.
+          type: integer
+          minimum: 0
+        offsets:
+          $ref: "#/components/schemas/Offsets"
+        easing:
+          description: >-
+            Easing of the segment from the previous keyframe to this one.
+            Required on every keyframe except the first, where it is
+            ignored.
+          $ref: "#/components/schemas/Easing"
+        bezier:
+          description: CSS-style control points x1, y1, x2, y2.
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+      if:
+        properties:
+          easing:
+            const: cubic_bezier
+        required: [easing]
+      then:
+        required: [bezier]
+    EyeState:
+      type: object
+      required: [mode]
+      additionalProperties: false
+      description: >-
+        Takes effect at t=0. A brightness/dimming field is reserved for
+        v1.1 and rejected in v1.
+      properties:
+        mode:
+          type: string
+          enum: ["on", "off", blink]
+        blink_closed_ms:
+          type: integer
+          minimum: 1
+        blink_count:
+          type: integer
+          minimum: 1
+      if:
+        properties:
+          mode:
+            const: blink
+      then:
+        required: [blink_closed_ms, blink_count]
+    ExpressionRequest:
+      type: object
+      required:
+        [keyframes, blend_in_ms, hold_ms, blend_out_ms, priority, interrupt]
+      additionalProperties: false
+      properties:
+        keyframes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Keyframe"
+        blend_in_ms:
+          description: >-
+            Envelope ramps the offsets from 0 to full over this time,
+            starting at t=0.
+          type: integer
+          minimum: 0
+        hold_ms:
+          description: Time the last keyframe is held after its t_ms.
+          type: integer
+          minimum: 0
+        blend_out_ms:
+          description: >-
+            After the hold, the envelope ramps the offsets back to 0 over
+            this time. Also used by cancel and by interrupt=replace.
+          type: integer
+          minimum: 0
+        priority:
+          description: Higher wins.
+          type: integer
+          minimum: 0
+          maximum: 255
+        interrupt:
+          type: string
+          enum: [replace, queue]
+        eyes:
+          type: object
+          additionalProperties: false
+          properties:
+            left:
+              $ref: "#/components/schemas/EyeState"
+            right:
+              $ref: "#/components/schemas/EyeState"
+        sound_id:
+          description: >-
+            A clip in the SD sound bank. Clip format (at most 500 ms, 16 kHz
+            Opus) is enforced when the clip is uploaded, not here.
+          type: string
+        sound_at_ms:
+          description: Start time of the sound on the same timeline.
+          type: integer
+          minimum: 0
+      dependentRequired:
+        sound_at_ms: [sound_id]
+    HalOutcome:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [applied, scaled, rejected]
+        reason:
+          description: >-
+            Set when scaled or rejected, for example projector_mounted,
+            balance_controller, gain_cap, current_interlock.
+          type: string
+    HalReport:
+      type: object
+      required: [joints]
+      properties:
+        joints:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/HalOutcome"
+        audio:
+          $ref: "#/components/schemas/HalOutcome"
+    ExpressionAccepted:
+      type: object
+      required: [expression_id, status, applied_keyframes, hal]
+      properties:
+        expression_id:
+          type: string
+        status:
+          type: string
+          enum: [playing, queued]
+        applied_keyframes:
+          description: >-
+            The request keyframes after the 15% clamp: the offsets that will
+            actually be commanded (before any HAL scaling).
+          type: array
+          items:
+            $ref: "#/components/schemas/Keyframe"
+        hal:
+          description: HAL admission outcome at acceptance.
+          $ref: "#/components/schemas/HalReport"
+    ExpressionStatus:
+      type: object
+      required: [expression_id, status, hal]
+      properties:
+        expression_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, playing, blending_out, done, cancelled, rejected]
+        hal:
+          description: >-
+            Latest HAL outcome, including scaling applied during playback.
+          $ref: "#/components/schemas/HalReport"
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_body
+            - not_found
+            - expression_conflict
+            - invalid_expression
+            - hardware_unavailable
+        message:
+          type: string
