@@ -142,10 +142,14 @@ components:
           type: integer
           format: uint32
           description: Bus servo id 1..14, or 255 for a joint that is not on the bus.
+          # Each branch repeats the type, and 255 is enum not const: with const,
+          # openapi-python-client 0.28 rejects every bus id 1..14.
           oneOf:
-            - minimum: 1
+            - type: integer
+              minimum: 1
               maximum: 14
-            - const: 255
+            - type: integer
+              enum: [255]
         has_feedback:
           type: boolean
           description: False for joints without feedback; their feedback fields are null.
