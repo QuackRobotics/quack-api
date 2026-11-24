@@ -431,8 +431,15 @@ components:
                 projector alpha and balance scale; the ratio is the same
                 either way. A tick with |requested| < 1e-4 rad has ratio
                 1.0. A rejected tick has ratio 0, whatever was requested.
-                The ratio is clipped to [0, 1]. min_scale = 0 if and only
-                if rejected_ticks > 0; it is 1.0 if every tick applied.
+                The ratio is clipped to [0, 1]. rejected_ticks > 0 implies
+                min_scale = 0; it is 1.0 if every tick applied. The two-way
+                check is on outcome: outcome = rejected if and only if
+                rejected_ticks > 0. min_scale = 0 with rejected_ticks = 0
+                means a step cut the offset fully on at least one tick;
+                that tick stays scaled (limit_headroom or
+                balance_controller), with no new outcome or reason value.
+                reason still comes from the first scaled tick, so it names
+                the cutting step only if that was the first scaled tick.
               type: number
               minimum: 0
               maximum: 1
