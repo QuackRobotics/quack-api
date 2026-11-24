@@ -40,13 +40,16 @@ info:
       2. projector envelope (reason projector_mounted);
       3. balance scaling (reason balance_controller);
       4. the same slew limit that POST /state targets pass through.
-    Every reduction is reported, not silent: GET /expression/{id} shows the
-    joint as scaled with that step's reason. The HAL sets every reason; the
-    API only passes the outcome on.
+    Steps 1-3 are reported, not silent: GET /expression/{id} shows the
+    joint as scaled with that step's reason. Step 4 is the shared POST
+    /state slew limit and is not reported per expression. The HAL sets
+    every reason; the API only passes the outcome on.
 
-    Projector. The projector clearance limits (interim floor now, final
-    table later), the audio gain cap, the head soft limit and the SG90/audio
-    current interlock live only in the HAL (Atlas), not here. The envelope
+    Projector. The projector clearance limits, the audio gain cap, the head
+    soft limit and the SG90/audio current interlock live only in the HAL
+    (Atlas), not here. Until the HAL's projector clearance table lands,
+    alpha = 0 whenever the projector is mounted: every head offset is
+    reported scaled, reason projector_mounted. The envelope
     may couple head joints: while the projector is mounted the HAL scales
     the whole head offset by one factor alpha in [0, 1] and reports scaled
     with reason projector_mounted. If the POST /state target itself is
@@ -346,9 +349,9 @@ components:
           enum: [playing, queued]
         applied_keyframes:
           description: >-
-            The request keyframes after the 15% clamp: the offsets that will
-            actually be commanded, as the HAL receives them (before any
-            per-tick HAL reduction, limit_headroom included).
+            The request keyframes as handed to the HAL: the offsets after
+            the 15% clamp, before any per-tick reduction (limit_headroom
+            included).
           type: array
           maxItems: 64
           items:
