@@ -1,0 +1,459 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# DRAFT PROPOSAL, NOT THE CONTRACT. Not referenced by codegen or CI gates.
+# Moves into openapi/quack-api.yaml only after Luxo and Atlas ack.
+# Additive to 0.1.0: minor bump to 0.2.0, nothing breaking.
+
+openapi: 3.1.0
+info:
+  title: quack-api expression offsets (proposal)
+  version: 0.2.0-draft
+  description: |
+    Expressive head and antenna motion layered on top of the active joint
+    targets, plus eyes and a short sound on the same timeline (REST :8080).
+
+    Offsets are additive, never absolute. Whole-body poses stay on
+    POST /state; the projector LED is out of scope.
+
+    Limits. Every offset is clamped to at most 15% of its joint's range,
+    using the same joint table v1 (PROVISIONAL, quack_core::limits) that
+    POST /state and gRPC MoveJoints check. The clamp is part of this
+    contract and the response returns the offsets actually applied.
+    Reference maxima (rad, 15% of max - min, rounded down): neck_pitch
+    0.2225, head_pitch 0.2356, head_yaw 0.8377, head_roll 0.1570,
+    left_antenna 0.2356, right_antenna 0.2356. The server derives them from
+    the table, so they follow any table change.
+
+    Composition. The commanded position of a joint is its active POST /state
+    target plus the current offset. POST /state is validated on its own,
+    exactly as without an expression, and is never rejected because an
+    expression is playing. Admission 422s are for malformed requests only,
+    never for a composed target.
+
+    HAL. At admission the API hands the HAL the whole keyframe track (after
+    the 15% clamp). The HAL evaluates it at each 50 Hz tick; the API never
+    streams offsets. Each tick the HAL adds the live target and the offset,
+    then runs a fixed order, one reason per step:
+      1. clamp to the joint limit table: the offset is reduced until
+         target + offset fits (reason limit_headroom);
+      2. projector envelope (reason projector_mounted);
+      3. balance scaling (reason balance_controller);
+      4. the same slew limit that POST /state targets pass through.
+    Steps 1-3 are reported, not silent: GET /expression/{id} shows the
+    joint as scaled with that step's reason. Step 4 is the shared POST
+    /state slew limit and is not reported per expression. The HAL sets
+    every reason; the API only passes the outcome on.
+
+    Projector. The projector clearance limits, the audio gain cap, the head
+    soft limit and the SG90/audio current interlock live only in the HAL
+    (Atlas), not here. Until the HAL's projector clearance table lands,
+    alpha = 0 whenever the projector is mounted: every head offset is
+    reported rejected, reason projector_mounted. The envelope
+    may couple head joints: while the projector is mounted the HAL scales
+    the whole head offset by one factor alpha in [0, 1] and reports scaled
+    with reason projector_mounted (alpha = 0 is reported rejected). If the
+    POST /state target itself is outside the envelope, the HAL holds the
+    last valid head pose and reports rejected, reason projector_mounted.
+    The HAL reports per joint and for audio
+    whether it applied, scaled or rejected, with a reason.
+
+    Timing. Playback is sampled on the 50 Hz control tick (20 ms); times
+    that are not multiples of 20 ms take effect on the next tick. No timing
+    has a server default: every duration is given by the caller.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+    description: Local development (mock hardware)
+tags:
+  - name: expression
+paths:
+  /expression:
+    post:
+      operationId: playExpression
+      tags: [expression]
+      summary: Start (or queue) an expression
+      description: >-
+        Validates the whole request before anything plays; on any error
+        nothing plays. Returns once the expression is accepted, not when it
+        finishes. interrupt=replace blends out the active expression (with
+        its own blend_out_ms) when the new priority is greater than or equal
+        to the active one, and is rejected with 409 expression_conflict when
+        it is lower. interrupt=queue starts after the active and already
+        queued expressions finish.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpressionRequest"
+      responses:
+        "202":
+          description: >-
+            Accepted; applied offsets and the HAL outcome at admission time
+            only. Outcomes during playback appear in GET /expression/{id}.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionAccepted"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /expression/{expression_id}:
+    parameters:
+      - name: expression_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getExpression
+      tags: [expression]
+      summary: Status of an expression and the latest HAL outcome
+      responses:
+        "200":
+          description: Current status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: cancelExpression
+      tags: [expression]
+      summary: Cancel an expression
+      description: >-
+        A playing expression blends out over its blend_out_ms, then its
+        offsets are 0. A queued one is dropped. Cancelling a finished or
+        cancelled expression is a no-op and returns its status.
+      responses:
+        "202":
+          description: Cancel accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpressionStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  responses:
+    Error:
+      description: >-
+        400 invalid_body (malformed JSON or missing fields), 404 not_found,
+        409 expression_conflict (lower priority than the active expression
+        with interrupt=replace), 422 invalid_expression (unknown joint,
+        unknown sound_id, bad easing, missing bezier, keyframe or eye event
+        t_ms not strictly increasing, more than 64 keyframes, or more than 32
+        eye events; the message names the field), 503 hardware_unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+  schemas:
+    Offsets:
+      description: >-
+        Additive offsets in radians, same unit as POST /state. Missing
+        joints are 0. Leg joints are not accepted.
+      type: object
+      additionalProperties: false
+      properties:
+        neck_pitch:
+          type: number
+        head_pitch:
+          type: number
+        head_yaw:
+          type: number
+        head_roll:
+          type: number
+        left_antenna:
+          type: number
+        right_antenna:
+          type: number
+    Easing:
+      type: string
+      enum: [linear, ease_in, ease_out, ease_in_out, cubic_bezier]
+    Keyframe:
+      type: object
+      required: [t_ms, offsets]
+      additionalProperties: false
+      properties:
+        t_ms:
+          description: >-
+            Time from the start of the expression. Strictly increasing
+            across keyframes.
+          type: integer
+          minimum: 0
+        offsets:
+          $ref: "#/components/schemas/Offsets"
+        easing:
+          description: >-
+            Easing of the segment from the previous keyframe to this one.
+            Required on every keyframe except the first, where it is
+            ignored.
+          $ref: "#/components/schemas/Easing"
+        bezier:
+          description: CSS-style control points x1, y1, x2, y2.
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+      if:
+        properties:
+          easing:
+            const: cubic_bezier
+        required: [easing]
+      then:
+        required: [bezier]
+    EyeState:
+      type: object
+      required: [mode]
+      additionalProperties: false
+      description: >-
+        Takes effect at its eye event's t_ms. A brightness/dimming field is
+        reserved for v1.1 and rejected in v1.
+      properties:
+        mode:
+          type: string
+          enum: ["on", "off", blink]
+        blink_closed_ms:
+          type: integer
+          minimum: 1
+        blink_count:
+          type: integer
+          minimum: 1
+      if:
+        properties:
+          mode:
+            const: blink
+      then:
+        required: [blink_closed_ms, blink_count]
+    EyeEvent:
+      type: object
+      required: [t_ms]
+      additionalProperties: false
+      description: >-
+        Eye state change on the expression timeline. An eye that is not
+        named keeps its current state.
+      properties:
+        t_ms:
+          type: integer
+          minimum: 0
+        left:
+          $ref: "#/components/schemas/EyeState"
+        right:
+          $ref: "#/components/schemas/EyeState"
+      anyOf:
+        - required: [left]
+        - required: [right]
+    ExpressionRequest:
+      type: object
+      required:
+        [keyframes, blend_in_ms, hold_ms, blend_out_ms, priority, interrupt]
+      additionalProperties: false
+      properties:
+        keyframes:
+          description: >-
+            At most 64. Before the first keyframe, when its t_ms is greater
+            than 0, the offset is that keyframe's value scaled by the
+            blend-in envelope.
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/Keyframe"
+        blend_in_ms:
+          description: >-
+            Envelope ramps the offsets from 0 to full over this time,
+            starting at t=0.
+          type: integer
+          minimum: 0
+        hold_ms:
+          description: Time the last keyframe is held after its t_ms.
+          type: integer
+          minimum: 0
+        blend_out_ms:
+          description: >-
+            After the hold, the envelope ramps the offsets back to 0 over
+            this time. Also used by cancel and by interrupt=replace.
+          type: integer
+          minimum: 0
+        priority:
+          description: Higher wins.
+          type: integer
+          minimum: 0
+          maximum: 255
+        interrupt:
+          type: string
+          enum: [replace, queue]
+        eye_events:
+          description: >-
+            At most 32, t_ms strictly increasing (no duplicates), on the same
+            timeline as keyframes. An event at t_ms 0 sets the starting
+            state. After blend-out, cancel or replace, each eye returns to
+            the state it had before this expression started.
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/EyeEvent"
+        sound_id:
+          description: >-
+            A clip in the SD sound bank. Clip format (at most 500 ms, 16 kHz
+            Opus) is enforced when the clip is uploaded, not here.
+          type: string
+        sound_at_ms:
+          description: Start time of the sound on the same timeline.
+          type: integer
+          minimum: 0
+      dependentRequired:
+        sound_at_ms: [sound_id]
+    HalOutcome:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [applied, scaled, rejected]
+        reason:
+          description: >-
+            Set when scaled or rejected, always by the HAL (the API only
+            passes it on), for example limit_headroom (target + offset
+            clamped to the joint limit table), projector_mounted,
+            balance_controller, gain_cap or current_interlock.
+          type: string
+    HalReport:
+      type: object
+      required: [joints]
+      properties:
+        joints:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/HalOutcome"
+        audio:
+          $ref: "#/components/schemas/HalOutcome"
+    ExpressionAccepted:
+      type: object
+      required: [expression_id, status, applied_keyframes, hal]
+      properties:
+        expression_id:
+          type: string
+        status:
+          type: string
+          enum: [playing, queued]
+        applied_keyframes:
+          description: >-
+            The request keyframes as handed to the HAL: the offsets after
+            the 15% clamp, before any per-tick reduction (limit_headroom
+            included).
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/Keyframe"
+        hal:
+          description: >-
+            HAL outcome at admission time only. Scaling during playback
+            (balance_controller, limit_headroom) appears only in
+            GET /expression/{id}.
+          $ref: "#/components/schemas/HalReport"
+    ExpressionStatus:
+      type: object
+      required: [expression_id, status, hal]
+      properties:
+        expression_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, playing, blending_out, done, cancelled, rejected]
+        hal:
+          description: >-
+            Latest HAL outcome, including scaling applied during playback.
+          $ref: "#/components/schemas/HalReport"
+        worst_since_admission:
+          description: >-
+            Optional. Per joint, the most severe outcome the HAL has
+            reported since admission. Set by the HAL; the API only passes
+            it on. Omitted by servers that do not report it.
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/JointWorstOutcome"
+    JointWorstOutcome:
+      description: >-
+        Per joint, since admission. Severity order is applied < scaled <
+        rejected. outcome and reason use the same values as HalOutcome;
+        reason is the one the HAL set on the first tick that reached this
+        outcome. If several steps scale the joint on that tick, reason is
+        the earliest in tick order. Hold-last-valid-pose and alpha = 0
+        while the projector is mounted are reported rejected, reason
+        projector_mounted. A rejected tick drops that joint's offset for
+        that tick only; the expression continues and eyes, sound and
+        antennas are unaffected except by their own interlocks. All fields
+        are set by the HAL; the API only passes them on. The shared
+        POST /state slew limit (step 4) is not counted in any field.
+      allOf:
+        - $ref: "#/components/schemas/HalOutcome"
+        - type: object
+          required: [scaled_ticks, rejected_ticks, min_scale]
+          properties:
+            scaled_ticks:
+              description: >-
+                Count of 50 Hz ticks since admission on which this joint's
+                ratio (see min_scale) was below 1, rejected ticks included.
+                A tick with |requested| < 1e-4 rad has ratio 1.0 and is not
+                counted, unless it was rejected.
+              type: integer
+              minimum: 0
+            rejected_ticks:
+              description: >-
+                Count of 50 Hz ticks since admission on which this joint's
+                outcome was rejected, including hold-last-valid-pose and
+                alpha = 0 while the projector is mounted. Always at most
+                scaled_ticks, since scaled_ticks counts every tick with
+                ratio < 1, rejected included. Scaled-only ticks =
+                scaled_ticks - rejected_ticks.
+              type: integer
+              minimum: 0
+            min_scale:
+              description: >-
+                The MINIMUM per-tick ratio since admission, not the latest
+                tick. Ratio = offset applied after step 3 / requested
+                offset, computed on the final offset. Requested is the
+                applied_keyframes offset the HAL evaluates for that tick,
+                before the step-1 clamp, so that clamp counts as a cut.
+                Step 1 clamps (applied = clamp(target + offset) - target);
+                projector alpha and balance scale; the ratio is the same
+                either way. A tick with |requested| < 1e-4 rad has ratio
+                1.0. A rejected tick has ratio 0, whatever was requested.
+                The ratio is clipped to [0, 1]. rejected_ticks > 0 implies
+                min_scale = 0; it is 1.0 if every tick applied. The two-way
+                check is on outcome: outcome = rejected if and only if
+                rejected_ticks > 0. min_scale = 0 with rejected_ticks = 0
+                means a step cut the offset fully on at least one tick;
+                that tick stays scaled (limit_headroom or
+                balance_controller), with no new outcome or reason value.
+                reason still comes from the first scaled tick, so it names
+                the cutting step only if that was the first scaled tick.
+              type: number
+              minimum: 0
+              maximum: 1
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_body
+            - not_found
+            - expression_conflict
+            - invalid_expression
+            - hardware_unavailable
+        message:
+          type: string
