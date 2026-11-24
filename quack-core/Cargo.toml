@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "quack-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core domain types for the Micro Duck API"
+
+[dependencies]

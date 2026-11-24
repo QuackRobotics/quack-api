@@ -1,0 +1,24 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package quack.telemetry.v1;
+
+// One joint reading. Bus servos use servo_id 1..14; joints without a bus
+// servo (PWM antennas) use 255. When has_feedback is false, velocity,
+// current and temperature are undefined and clients must ignore them.
+message JointState {
+  string name = 1;
+  uint32 servo_id = 2;
+  bool has_feedback = 3;
+  float position_rad = 4;
+  float velocity_rad_s = 5;
+  float current_ma = 6;
+  float temperature_c = 7;
+}
+
+message JointStates {
+  uint64 timestamp_us = 1;
+  repeated JointState joints = 2;
+}
