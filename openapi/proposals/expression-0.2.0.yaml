@@ -26,12 +26,13 @@ info:
     the table, so they follow any table change.
 
     Composition. The commanded position of a joint is its active POST /state
-    target plus the current offset. That sum must stay inside the joint's
-    limits: an expression whose applied offsets would leave the limits
-    against the current target is rejected with 422 invalid_expression, and
-    while an expression plays, a POST /state target whose sum with the live
-    offset leaves the limits is rejected with 422 invalid_move. Nothing is
-    clamped silently beyond the 15% rule above.
+    target plus the current offset. POST /state is validated on its own,
+    exactly as without an expression, and is never rejected because an
+    expression is playing. At each 50 Hz tick, if target + offset would
+    leave the joint's limits, that joint's offset is reduced until the sum
+    fits. The reduction is reported, not silent: GET /expression/{id} shows
+    the joint as scaled with reason limit_headroom. Admission 422s are for
+    malformed requests only, never for a composed target.
 
     HAL. The projector head limits, the audio gain cap, the head soft limit
     and the SG90/audio current interlock live only in the HAL (Atlas), not
@@ -74,7 +75,9 @@ paths:
               $ref: "#/components/schemas/ExpressionRequest"
       responses:
         "202":
-          description: Accepted; applied offsets and HAL admission outcome.
+          description: >-
+            Accepted; applied offsets and the HAL outcome at admission time
+            only. Outcomes during playback appear in GET /expression/{id}.
           content:
             application/json:
               schema:
@@ -131,9 +134,9 @@ components:
         400 invalid_body (malformed JSON or missing fields), 404 not_found,
         409 expression_conflict (lower priority than the active expression
         with interrupt=replace), 422 invalid_expression (unknown joint,
-        unknown sound_id, bad easing, missing bezier, t_ms not strictly
-        increasing, or composed target outside the joint limits; the message
-        names the field), 503 hardware_unavailable.
+        unknown sound_id, bad easing, missing bezier, keyframe or eye event
+        t_ms not strictly increasing, more than 64 keyframes, or more than 32
+        eye events; the message names the field), 503 hardware_unavailable.
       content:
         application/json:
           schema:
@@ -199,8 +202,8 @@ components:
       required: [mode]
       additionalProperties: false
       description: >-
-        Takes effect at t=0. A brightness/dimming field is reserved for
-        v1.1 and rejected in v1.
+        Takes effect at its eye event's t_ms. A brightness/dimming field is
+        reserved for v1.1 and rejected in v1.
       properties:
         mode:
           type: string
@@ -217,6 +220,24 @@ components:
             const: blink
       then:
         required: [blink_closed_ms, blink_count]
+    EyeEvent:
+      type: object
+      required: [t_ms]
+      additionalProperties: false
+      description: >-
+        Eye state change on the expression timeline. An eye that is not
+        named keeps its current state.
+      properties:
+        t_ms:
+          type: integer
+          minimum: 0
+        left:
+          $ref: "#/components/schemas/EyeState"
+        right:
+          $ref: "#/components/schemas/EyeState"
+      anyOf:
+        - required: [left]
+        - required: [right]
     ExpressionRequest:
       type: object
       required:
@@ -224,8 +245,13 @@ components:
       additionalProperties: false
       properties:
         keyframes:
+          description: >-
+            At most 64. Before the first keyframe, when its t_ms is greater
+            than 0, the offset is that keyframe's value scaled by the
+            blend-in envelope.
           type: array
           minItems: 1
+          maxItems: 64
           items:
             $ref: "#/components/schemas/Keyframe"
         blend_in_ms:
@@ -252,14 +278,16 @@ components:
         interrupt:
           type: string
           enum: [replace, queue]
-        eyes:
-          type: object
-          additionalProperties: false
-          properties:
-            left:
-              $ref: "#/components/schemas/EyeState"
-            right:
-              $ref: "#/components/schemas/EyeState"
+        eye_events:
+          description: >-
+            At most 32, t_ms strictly increasing (no duplicates), on the same
+            timeline as keyframes. An event at t_ms 0 sets the starting
+            state. After blend-out, cancel or replace, each eye returns to
+            the state it had before this expression started.
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/EyeEvent"
         sound_id:
           description: >-
             A clip in the SD sound bank. Clip format (at most 500 ms, 16 kHz
@@ -281,7 +309,9 @@ components:
         reason:
           description: >-
             Set when scaled or rejected, for example projector_mounted,
-            balance_controller, gain_cap, current_interlock.
+            balance_controller, gain_cap, current_interlock, or
+            limit_headroom (set by the API when target + offset would leave
+            the joint limits and the offset was reduced to fit).
           type: string
     HalReport:
       type: object
@@ -305,12 +335,17 @@ components:
         applied_keyframes:
           description: >-
             The request keyframes after the 15% clamp: the offsets that will
-            actually be commanded (before any HAL scaling).
+            actually be commanded (before any HAL scaling or limit_headroom
+            reduction).
           type: array
+          maxItems: 64
           items:
             $ref: "#/components/schemas/Keyframe"
         hal:
-          description: HAL admission outcome at acceptance.
+          description: >-
+            HAL outcome at admission time only. Scaling during playback
+            (balance_controller, limit_headroom) appears only in
+            GET /expression/{id}.
           $ref: "#/components/schemas/HalReport"
     ExpressionStatus:
       type: object
