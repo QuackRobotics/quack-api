@@ -10,10 +10,13 @@ Source: Atlas, 2026-11-23 10:14 Paris.
 Provisional pin for joints 0–13: Open_Duck_Playground MJCF
 `playground/open_duck_mini_v2/xmls/open_duck_mini_v2.xml`
 (sha256 `968b18de4e3f55b31252155f52779fa490989f5da92bc9b308e0bb4e81d6bb5c`).
-Code/harness pin: Playground `b9be205ac64488c23504ca42e5ec790337adeec3`. The
+Code/harness pin: Open_Duck_Playground commit
+`b9be205ac64488c23504ca42e5ec790337adeec3` (2025-08-05). The
 MJCF bytes there equal those at `f6988368da959156d94fcd53b76864724dc52860`,
 whose MJCF change was only the sts3215 kp (17.12 → 13.37) and the IMU site.
 `b23317a` is an Open_Duck_Mini commit and pins mechanics/BOM only.
+Training model: "likely, unproven" (Hinton, 2026-11-24). Per Hinton, the
+joint list is identical back to at least 2025-03-22.
 PROVISIONAL until Hinton gives the quack-sim sha and his training commit.
 
 Never use the Open_Duck_Mini 16-actuator order (old `robot.xml`, antennas
