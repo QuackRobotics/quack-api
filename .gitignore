@@ -6,3 +6,5 @@
 /quack-sdk-gen/typescript/node_modules
 /quack-sdk-gen/typescript/dist
 /quack-sdk-gen/typescript/src/schema.d.ts
+/quack-dashboard/node_modules
+/quack-dashboard/dist

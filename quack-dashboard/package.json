@@ -1,0 +1,28 @@
+{
+  "name": "quack-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test src/telemetry.test.ts",
+    "build": "npm run typecheck && vite build"
+  },
+  "dependencies": {
+    "@quack/sdk": "file:../quack-sdk-gen/typescript",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}
