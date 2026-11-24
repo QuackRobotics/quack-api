@@ -8,6 +8,15 @@
 //! `b9be205` (MJCF sha256 `968b18de`), antennas 14-15 pending a bench check.
 //! Every move target on every API surface is checked against this one table,
 //! so the limits cannot drift between REST, gRPC and expression offsets.
+//! This table is the only source of limits: there is no runtime override.
+//!
+//! The API matches joints by name only, never by index. The order here is the
+//! policy/MJCF order and differs from the mock bus order on purpose.
+//!
+//! Precondition for any real servo driver: the name -> servo ID / bus index
+//! map lives in the driver/HAL (owned by Atlas, IDs confirmed by Woz), not in
+//! the API. A real driver must not ship until that map exists and covers every
+//! joint in this table.
 
 /// Inclusive position range of one joint, in radians.
 #[derive(Debug, Clone, Copy, PartialEq)]
