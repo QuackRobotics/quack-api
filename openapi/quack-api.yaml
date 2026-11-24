@@ -8,6 +8,12 @@ info:
   description: >-
     REST surface of quack-api. This file is the source of truth: SDKs are
     generated from it, and the server in quack-api/ implements it.
+
+    Telemetry is a WebSocket at ws://localhost:8081/telemetry: one JSON
+    TelemetryFrame (see components) per tick at 50 Hz. On a hardware error
+    the server closes the socket with code 1011 and reason
+    hardware_unavailable. The gRPC control service on :50051 is defined in
+    quack-proto/proto/quack/control/v1/control.proto.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -194,3 +200,18 @@ components:
             - hardware_unavailable
         message:
           type: string
+    TelemetryFrame:
+      description: >-
+        One WebSocket message on ws://localhost:8081/telemetry. Mirrors
+        quack.telemetry.v1.JointStates.
+      type: object
+      required: [timestamp_us, joints]
+      properties:
+        timestamp_us:
+          type: integer
+          format: uint64
+          description: Microseconds since the Unix epoch when the joints were read.
+        joints:
+          type: array
+          items:
+            $ref: "#/components/schemas/JointState"
