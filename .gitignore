@@ -3,3 +3,6 @@
 
 /target
 /quack-sdk-gen/out
+/quack-sdk-gen/typescript/node_modules
+/quack-sdk-gen/typescript/dist
+/quack-sdk-gen/typescript/src/schema.d.ts
