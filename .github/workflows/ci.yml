@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dtc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
+      - name: compile every overlay
+        run: |
+          dtc --version
+          for f in hardware/overlays/*.dts; do
+            dtc -@ -I dts -O dtb -o "${f%.dts}.dtbo" "$f"
+          done
+
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.13.1"
+      - run: npx --yes markdownlint-cli2@0.18.1 "docs/**/*.md" "hardware/**/*.md"
+
+  ci:
+    needs: [dtc, markdown]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: all required jobs passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "dtc=${{ needs.dtc.result }} markdown=${{ needs.markdown.result }}"
+          exit 1
+      - run: echo "dtc=${{ needs.dtc.result }} markdown=${{ needs.markdown.result }}"
