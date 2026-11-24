@@ -395,11 +395,21 @@ components:
       allOf:
         - $ref: "#/components/schemas/HalOutcome"
         - type: object
-          required: [scaled_ticks]
+          required: [scaled_ticks, min_scale]
           properties:
             scaled_ticks:
               type: integer
               minimum: 0
+            min_scale:
+              description: >-
+                Smallest per-tick ratio, since admission, of the offset the
+                HAL commanded after steps 1-3 to the applied_keyframes
+                offset for this joint. 1.0 if never scaled or if the
+                requested offset is 0. Set by the HAL; the API only passes
+                it on. The step 4 slew limit is not counted.
+              type: number
+              minimum: 0
+              maximum: 1
     ApiError:
       type: object
       required: [code, message]
