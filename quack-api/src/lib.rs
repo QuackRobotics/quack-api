@@ -4,8 +4,10 @@
 //! REST surface of the Micro Duck API. The OpenAPI 3.1 spec in
 //! `openapi/quack-api.yaml` is the contract; these handlers implement it.
 
+pub mod grpc;
 pub mod hardware;
 pub mod startup;
+pub mod telemetry;
 
 use std::collections::HashSet;
 use std::sync::Arc;

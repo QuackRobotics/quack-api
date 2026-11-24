@@ -1,0 +1,37 @@
+// SPDX-FileCopyrightText: 2026 Quack Robotics contributors
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package quack.control.v1;
+
+import "quack/telemetry/v1/telemetry.proto";
+
+// Low-latency control surface (gRPC, :50051). Same semantics and validation
+// as the REST endpoints GET /state and POST /state in openapi/quack-api.yaml.
+service ControlService {
+  // Current state of every joint.
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  // Synchronous move: every target is validated before anything moves, and
+  // the response is the state after the move has finished.
+  rpc MoveJoints(MoveJointsRequest) returns (MoveJointsResponse);
+}
+
+message GetStateRequest {}
+
+message GetStateResponse {
+  quack.telemetry.v1.JointStates state = 1;
+}
+
+message JointTarget {
+  string name = 1;
+  float position_rad = 2;
+}
+
+message MoveJointsRequest {
+  repeated JointTarget joints = 1;
+}
+
+message MoveJointsResponse {
+  quack.telemetry.v1.JointStates state = 1;
+}
