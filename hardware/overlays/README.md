@@ -11,8 +11,9 @@ Woz; the driver compatible string stays `ics43432`), I2S 48 kHz, 2 x 32-bit slot
 (64 fs, BCLK 3.072 MHz). The `googlevoicehat` codec driver owns GPIO4 and
 toggles SD_MODE with stream start/stop, so a power-fail or safe-stop mute must
 go through the audio server stopping the stream (or a separate gate), not by
-driving GPIO4 externally. Woz decides. SD_MODE has a pull-down (`brcm,pull = <1>`), so the amp is
-muted by default until the driver raises it.
+driving GPIO4 externally. Woz decides. SD_MODE has a pull-down
+(`brcm,pull = <1>`), so the amp is muted by default until the driver raises
+it.
 
 Upstream: raspberrypi/linux branch `rpi-6.12.y`,
 `arch/arm/boot/dts/overlays/googlevoicehat-soundcard-overlay.dts`, last
